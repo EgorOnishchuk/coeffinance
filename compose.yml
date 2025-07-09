@@ -1,0 +1,93 @@
+services:
+    web:
+        build: .
+        container_name: ${API_HOST}
+        env_file: .env
+        ports:
+            - ${API_PORT}:8000
+        profiles:
+            - dont-start
+
+    web-prod:
+        extends:
+            service: web
+        depends_on:
+            db-prod:
+                condition: service_healthy
+        command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers ${WORKERS:-1} --log-level ${LOG_LEVEL:-trace}
+        logging:
+            driver: json-file
+            options:
+                max-size: 10m
+                max-file: 3
+        profiles:
+            - prod
+
+    web-test:
+        extends:
+            service: web
+        depends_on:
+            db-dev-test:
+                condition: service_healthy
+        entrypoint: sh docker-entrypoint.sh
+        command: pytest tests
+        profiles:
+            - test
+
+    web-dev:
+        extends:
+            service: web
+        depends_on:
+            db-dev-test:
+                condition: service_healthy
+        entrypoint: sh docker-entrypoint.sh
+        command: uvicorn src.main:app --host 0.0.0.0 --port 8000
+        develop:
+            watch:
+                -   action: sync+restart
+                    path: .
+                    target: /app
+                    ignore:
+                        - pyproject.toml
+                -   action: rebuild
+                    path: pyproject.toml
+        profiles:
+            - dev
+
+    db:
+        image: postgres:17.2
+        container_name: ${DB_HOST}
+        environment:
+            POSTGRES_USER: ${DB_USER}
+            POSTGRES_PASSWORD: ${DB_PASSWORD}
+            POSTGRES_DB: ${DB_NAME}
+        healthcheck:
+            test: pg_isready -U ${DB_USER} -d ${DB_NAME}
+            interval: 10s
+            timeout: 5s
+            retries: 3
+        profiles:
+            - dont-start
+
+    db-prod:
+        extends:
+            service: db
+        volumes:
+            - data:/var/lib/postgresql/data
+        logging:
+            driver: json-file
+            options:
+                max-size: 3m
+                max-file: 1
+        profiles:
+            - prod
+
+    db-dev-test:
+        extends:
+            service: db
+        profiles:
+            - dev
+            - test
+
+volumes:
+    data:
