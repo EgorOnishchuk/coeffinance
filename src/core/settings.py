@@ -1,6 +1,5 @@
-import logging
-import re
-from typing import Annotated, ClassVar
+from http import HTTPMethod
+from typing import Annotated
 
 from pydantic import (
     AfterValidator,
@@ -9,18 +8,11 @@ from pydantic import (
     HttpUrl,
     PositiveFloat,
     PositiveInt,
-    field_validator,
 )
 from pydantic_extra_types.semantic_version import SemanticVersion
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from src.schemas import NonEmptyStr
-
-LOGGER: logging.Logger = logging.getLogger("uvicorn.error")
-
-ENDPOINT: re.Pattern[str] = re.compile(
-    r"^/(?:[A-Za-z0-9\-._~]+(?:/[A-Za-z0-9\-._~]+)*)?/?$",
-)
+from src.core.schemas import ENDPOINT, SHA_1, NonEmptyStr
 
 
 class Settings(BaseSettings):
@@ -31,27 +23,31 @@ class Settings(BaseSettings):
     )
 
 
-class APISettings(Settings):
-    host: Annotated[NonEmptyStr, Field(validation_alias="api_host")]
-    port: Annotated[PositiveInt, Field(le=65535, validation_alias="api_port")]
-
-    timeout: Annotated[
-        PositiveFloat,
-        Field(validation_alias="external_api_timeout"),
-    ] = 10.0
-
-
-class DBSettings(Settings):
+class DBCredentials(Settings):
+    schema_: Annotated[NonEmptyStr, Field(validation_alias="db_schema")]
     host: Annotated[NonEmptyStr, Field(validation_alias="db_host")]
     user: Annotated[NonEmptyStr, Field(validation_alias="db_user")]
     password: Annotated[NonEmptyStr, Field(validation_alias="db_password")]
     db_name: NonEmptyStr
 
-    pool_min_size: Annotated[PositiveInt, Field(serialization_alias="min_size")] = 10
-    pool_max_size: Annotated[PositiveInt, Field(serialization_alias="max_size")] = 10
-    max_queries: PositiveInt = 50000
-    max_inactive_connection_lifetime: PositiveFloat = 300.0
-    timeout: Annotated[PositiveFloat, Field(validation_alias="db_timeout")] = 5.0
+    @property
+    def dsn(self) -> str:
+        return f"{self.schema_}://{self.user}:{self.password}@{self.host}/{self.db_name}"
+
+
+class DBPoolSettings(Settings):
+    size: Annotated[PositiveInt, Field(validation_alias="db_pool_size", serialization_alias="pool_size")] = 10
+    overflow: Annotated[PositiveInt, Field(validation_alias="db_pool_overflow", serialization_alias="max_overflow")] = 3
+    timeout: Annotated[PositiveFloat, Field(validation_alias="db_timeout", serialization_alias="pool_timeout")] = 5.0
+
+
+class ExternalAPISettings(Settings):
+    api_fns_token: Annotated[str, Field(pattern=SHA_1)]
+
+    timeout: Annotated[
+        PositiveFloat,
+        Field(validation_alias="external_api_timeout"),
+    ] = 10.0
 
 
 class TrustedHostsSettings(Settings):
@@ -62,18 +58,6 @@ class TrustedHostsSettings(Settings):
 
 
 class CORSSettings(Settings):
-    methods: ClassVar[set[str]] = {
-        "GET",
-        "HEAD",
-        "POST",
-        "PUT",
-        "DELETE",
-        "CONNECT",
-        "OPTIONS",
-        "TRACE",
-        "PATCH",
-    }
-
     allowed_origins: Annotated[
         list[HttpUrl] | None,
         Field(serialization_alias="allow_origins"),
@@ -83,7 +67,7 @@ class CORSSettings(Settings):
         Field(serialization_alias="allow_origin_regex"),
     ] = None
     allowed_methods: Annotated[
-        list[NonEmptyStr] | None,
+        list[HTTPMethod] | None,
         Field(serialization_alias="allow_methods"),
     ] = None
     allowed_headers: Annotated[
@@ -99,14 +83,6 @@ class CORSSettings(Settings):
         Field(serialization_alias="expose_headers"),
     ] = None
     cache_time: Annotated[PositiveInt | None, Field(serialization_alias="max_age")] = None
-
-    @field_validator("allowed_methods")
-    @classmethod
-    def check_existence(cls, value: list[str] | None) -> list[str] | None:
-        if value is not None and set(value) - cls.methods:
-            raise ValueError("Some methods are not defined in HTTP specification.")
-
-        return value
 
 
 class CompressionSettings(Settings):
