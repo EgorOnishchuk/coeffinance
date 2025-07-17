@@ -1,10 +1,9 @@
 services:
     web:
         build: .
-        container_name: ${API_HOST}
-        env_file: .env
+        container_name: ${WEB_HOST}
         ports:
-            - ${API_PORT}:8000
+            - ${WEB_PORT}:8000
         profiles:
             - dont-start
 
@@ -18,8 +17,8 @@ services:
         logging:
             driver: json-file
             options:
-                max-size: 10m
-                max-file: 3
+                max-size: ${LOG_SIZE:-10}m
+                max-file: ${LOG_FILES:-3}
         profiles:
             - prod
 
@@ -41,7 +40,7 @@ services:
             db-dev-test:
                 condition: service_healthy
         entrypoint: sh docker-entrypoint.sh
-        command: uvicorn src.main:app --host 0.0.0.0 --port 8000
+        command: uvicorn --factory src.main:main --host 0.0.0.0 --port 8000
         develop:
             watch:
                 -   action: sync+restart
@@ -51,11 +50,13 @@ services:
                         - pyproject.toml
                 -   action: rebuild
                     path: pyproject.toml
+        volumes:
+            - ./src/core/migrator/versions:/app/src/core/migrator/versions
         profiles:
             - dev
 
     db:
-        image: postgres:17.2
+        image: postgres:17.5
         container_name: ${DB_HOST}
         environment:
             POSTGRES_USER: ${DB_USER}
@@ -85,6 +86,8 @@ services:
     db-dev-test:
         extends:
             service: db
+        ports:
+            - "5432:5432"
         profiles:
             - dev
             - test
