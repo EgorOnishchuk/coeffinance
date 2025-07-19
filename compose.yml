@@ -13,7 +13,9 @@ services:
         depends_on:
             db-prod:
                 condition: service_healthy
-        command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --workers ${WORKERS:-1} --log-level ${LOG_LEVEL:-trace}
+        command:
+            python -O -m uvicorn --factory src.main:main --host 0.0.0.0 --port 8000
+            --workers ${WORKERS:-1} --log-level ${LOG_LEVEL:-trace}
         logging:
             driver: json-file
             options:
@@ -43,13 +45,13 @@ services:
         command: uvicorn --factory src.main:main --host 0.0.0.0 --port 8000
         develop:
             watch:
-                -   action: sync+restart
-                    path: .
-                    target: /app
-                    ignore:
-                        - pyproject.toml
-                -   action: rebuild
-                    path: pyproject.toml
+                - action: sync+restart
+                  path: .
+                  target: /app
+                  ignore:
+                      - pyproject.toml
+                - action: rebuild
+                  path: pyproject.toml
         volumes:
             - ./src/core/migrator/versions:/app/src/core/migrator/versions
         profiles:
@@ -78,8 +80,8 @@ services:
         logging:
             driver: json-file
             options:
-                max-size: 3m
-                max-file: 1
+                max-size: ${LOG_SIZE:-3}m
+                max-file: ${LOG_FILES:-1}
         profiles:
             - prod
 
