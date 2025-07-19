@@ -14,14 +14,12 @@ dependencies = [
     "fastapi>=0.115.11",
     "fastcrud>=0.15.12",
     "httpx>=0.28.1",
-    "psycopg2-binary>=2.9.10",
     "pydantic-extra-types>=2.10.2",
     "pydantic-settings>=2.8.1",
     "pytest-asyncio>=0.25.3",
     "semver>=3.0.4",
     "sqlmodel>=0.0.24",
     "uvicorn>=0.34.0",
-    "yoyo-migrations>=9.0.0",
 ]
 
 [dependency-groups]
@@ -41,7 +39,7 @@ script_location = "%(here)s/src/core/migrator"
 
 # additional paths to be prepended to sys.path. defaults to the current working directory.
 prepend_sys_path = [
-    "."
+    ".",
 ]
 
 # timezone to use when rendering the date within the migration file
@@ -107,13 +105,19 @@ prepend_sys_path = [
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.mypy]
-plugins = ['pydantic.mypy']
-exclude = ["src/core/migrator"]
+plugins = [
+    'pydantic.mypy',
+]
+exclude = [
+    "src/core/migrator",
+]
 
 [tool.ruff]
 target-version = "py313"
 line-length = 120
-extend-exclude = ["src/core/migrator"]
+extend-exclude = [
+    "src/core/migrator",
+]
 
 [tool.ruff.lint]
 select = [
@@ -125,6 +129,7 @@ ignore = [
     "EM",
 
     "ANN401",
+    "COM812",
     "S101",
     "TRY003",
 ]
