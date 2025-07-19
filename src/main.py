@@ -25,7 +25,6 @@ from src.core.errors.handlers import (
 )
 from src.core.middlewares import VersionMiddleware
 from src.core.settings import CompressionSettings, CORSSettings, DocsSettings, TrustedHostsSettings
-from src.core.utils.db_managers import DBManager
 from src.users.routes import router as users_router
 
 
@@ -33,7 +32,6 @@ from src.users.routes import router as users_router
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     web_container: AsyncContainer = app.state.dishka_container
 
-    await (await container.get(DBManager)).setup()
     yield
 
     await web_container.close()
@@ -67,9 +65,13 @@ def main() -> FastAPI:
         (ExternalAPIError, external_api_handler),
         (Exception, unexpected_exception_handler),
     ):
-        app.add_exception_handler(exc, handler) # type: ignore[arg-type]
+        app.add_exception_handler(exc, handler)  # type: ignore[arg-type]
 
-    for router in users_router, companies_router, analytics_router:
+    for router in (
+        users_router,
+        companies_router,
+        analytics_router,
+    ):
         app.include_router(router, prefix="/api")
 
     return app

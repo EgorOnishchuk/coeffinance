@@ -17,11 +17,11 @@ class SQLAlchemyCompatible(Protocol):
 
 class DBManager(ABC):
     @abstractmethod
-    async def setup(self) -> None:
-        raise NotImplementedError
-
-    @abstractmethod
     async def clear(self) -> None:
+        """
+        In implementations, it's preferable to clean up the tables rather than drop the tables themselves for greater
+        efficiency.
+        """
         raise NotImplementedError
 
 
@@ -29,10 +29,6 @@ class DBManager(ABC):
 class SQLAlchemyDBManager(DBManager):
     engine: AsyncEngine
     root_model: type[SQLAlchemyCompatible]
-
-    async def setup(self) -> None:
-        async with self.engine.begin() as conn:
-            await conn.run_sync(self.root_model.metadata.create_all)
 
     async def clear(self) -> None:
         async with self.engine.begin() as conn:

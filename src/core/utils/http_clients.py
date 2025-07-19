@@ -28,7 +28,13 @@ type Method = Literal[
     HTTPMethod.CONNECT,
     HTTPMethod.TRACE,
 ]
-type JSONReturningMethod = Literal[HTTPMethod.GET, HTTPMethod.POST, HTTPMethod.PUT, HTTPMethod.PATCH, HTTPMethod.DELETE]
+type JSONReturningMethod = Literal[
+    HTTPMethod.GET,
+    HTTPMethod.POST,
+    HTTPMethod.PUT,
+    HTTPMethod.PATCH,
+    HTTPMethod.DELETE,
+]
 
 
 @dataclass(kw_only=True, slots=True, frozen=True)
@@ -38,12 +44,24 @@ class HTTPClient(ABC):
 
 class RESTClient(HTTPClient, Generic[SessionT]):
     @abstractmethod
-    async def request_json(self, session: SessionT, url: str, method: JSONReturningMethod, **kwargs: Any) -> JSON:
+    async def request_json(
+        self,
+        session: SessionT,
+        url: str,
+        method: JSONReturningMethod,
+        **kwargs: Any,
+    ) -> JSON:
         raise NotImplementedError
 
 
 class HTTPXClient(RESTClient[AsyncClient]):
-    async def _connect(self, session: AsyncClient, url: str, method: Method, **kwargs: Any) -> Response:
+    async def _connect(
+        self,
+        session: AsyncClient,
+        url: str,
+        method: Method,
+        **kwargs: Any,
+    ) -> Response:
         try:
             response = await session.request(
                 method,
@@ -61,12 +79,24 @@ class HTTPXClient(RESTClient[AsyncClient]):
 
         return response
 
-    async def request_json(self, session: AsyncClient, url: str, method: JSONReturningMethod, **kwargs: Any) -> JSON:
+    async def request_json(
+        self,
+        session: AsyncClient,
+        url: str,
+        method: JSONReturningMethod,
+        **kwargs: Any,
+    ) -> JSON:
         return (await self._connect(session, url, method, **kwargs)).json()
 
 
 class AIOHTTPClient(RESTClient[ClientSession]):
-    async def _connect(self, session: ClientSession, url: str, method: Method, **kwargs: Any) -> ClientResponse:
+    async def _connect(
+        self,
+        session: ClientSession,
+        url: str,
+        method: Method,
+        **kwargs: Any,
+    ) -> ClientResponse:
         try:
             async with session.request(
                 method,
@@ -80,5 +110,11 @@ class AIOHTTPClient(RESTClient[ClientSession]):
         except (ClientConnectionError, ClientResponseError) as exc:
             raise ExternalAPIError from exc
 
-    async def request_json(self, session: ClientSession, url: str, method: JSONReturningMethod, **kwargs: Any) -> JSON:
+    async def request_json(
+        self,
+        session: ClientSession,
+        url: str,
+        method: JSONReturningMethod,
+        **kwargs: Any,
+    ) -> JSON:
         return await (await self._connect(session, url, method, **kwargs)).json()
