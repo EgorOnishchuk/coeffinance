@@ -41,6 +41,30 @@ class DBPoolSettings(Settings):
     timeout: Annotated[PositiveFloat, Field(validation_alias="db_timeout", serialization_alias="pool_timeout")] = 5.0
 
 
+class CacheCredentials(Settings):
+    password: Annotated[NonEmptyStr, Field(validation_alias="cache_password")]
+    host: Annotated[NonEmptyStr, Field(validation_alias="cache_host")]
+
+    @property
+    def dsn(self) -> str:
+        return f"redis://default:{self.password}@{self.host}"
+
+
+class AuthSettings(Settings):
+    email_verification_secret: NonEmptyStr
+    password_reset_secret: NonEmptyStr
+
+    sys_email: EmailStr
+
+
+class EmailSettings(Settings):
+    host: Annotated[NonEmptyStr, Field(validation_alias="email_host")]
+    user: Annotated[NonEmptyStr, Field(validation_alias="email_user")]
+    password: Annotated[NonEmptyStr, Field(validation_alias="email_password")]
+
+    timeout: Annotated[PositiveFloat, Field(validation_alias="email_timeout")] = 30.0
+
+
 class ExternalAPISettings(Settings):
     api_fns_token: Annotated[str, Field(pattern=SHA_1)]
 
@@ -100,7 +124,7 @@ class DocsSettings(Settings):
     title: Annotated[NonEmptyStr, Field(max_length=50)]
     summary: Annotated[str | None, Field(min_length=5, max_length=150)] = None
     description: Annotated[str | None, Field(min_length=5, max_length=500)] = None
-    version: Annotated[SemanticVersion, AfterValidator(lambda value: str(value))]
+    version: Annotated[SemanticVersion, AfterValidator(lambda val: str(val))]
     terms_of_service: HttpUrl | None = None
     contact: dict[str, NonEmptyStr | HttpUrl | EmailStr] | None = None
     license: Annotated[
