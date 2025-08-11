@@ -5,33 +5,32 @@ from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 from sqlmodel import Field, SQLModel
 
-convention = {
-    "ix": "ix_%(column_0_label)s",
-    "uq": "uq_%(table_name)s_%(column_0_name)s",
-    "ck": "ck_%(table_name)s_%(constraint_name)s",
-    "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-    "pk": "pk_%(table_name)s",
-}
+from src.core.schemas import DBNamingConvention
 
 
 class SQLAlchemyModel(AsyncAttrs, DeclarativeBase):
+    __abstract__ = True
+    metadata = MetaData(naming_convention=DBNamingConvention().model_dump())
+
+
+class SQLAlchemyIDModel(SQLAlchemyModel):
     """
-    Autoincrement is a «hidden» primary key here. Each table used in an external API should have an additional «exposed»
-    key, which should preferably be natural (not surrogate) for usability.
+    Autoincrement is a «hidden» primary key here. Each table used in the public API should have an additional «exposed»
+    unique key, which should preferably be natural (not surrogate) for usability.
     """
 
     __abstract__ = True
-    metadata = MetaData(naming_convention=convention)
-
     id: Mapped[int] = mapped_column(primary_key=True)
 
 
 class SQLModelBase(SQLModel, AsyncAttrs):
-    """
-    Autoincrement is a «hidden» primary key here. Each table used in an external API should have an additional «exposed»
-    key, which should preferably be natural (not surrogate) for usability.
-    """
+    metadata = MetaData(naming_convention=DBNamingConvention().model_dump())
 
-    metadata = MetaData(naming_convention=convention)
+
+class SQLModelID(SQLModelBase):
+    """
+    Autoincrement is a «hidden» primary key here. Each table used in the public API should have an additional «exposed»
+    unique key, which should preferably be natural (not surrogate) for usability.
+    """
 
     id: Annotated[int, Field(primary_key=True)]
