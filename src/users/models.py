@@ -5,7 +5,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from src.core.models import SQLAlchemyIDModel
 
 
-class SQLAlchemyUser(SQLAlchemyBaseUserTable[int], SQLAlchemyIDModel): # type: ignore[misc]
+class SQLAlchemyUser(SQLAlchemyBaseUserTable[int], SQLAlchemyIDModel):  # type: ignore[misc]
     """
     Explanations of limitations:
     nickname — lines longer than 30 characters are difficult to recognize;
