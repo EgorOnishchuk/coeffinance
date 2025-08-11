@@ -7,7 +7,7 @@ from dishka.integrations.fastapi import DishkaRoute
 from fastapi import APIRouter, FastAPI
 
 from src.core.errors import OpenAPIError
-from src.core.schemas import JSONDict
+from src.core.schemas import JSON, JSONDict
 
 
 class DishkaRouter(APIRouter):
@@ -50,7 +50,7 @@ class OpenAPIEditor:
             except (KeyError, IndexError) as exc:
                 raise OpenAPIError(exc.args[0]) from exc
 
-    def remove_elements(self, target: str, paths: JSONDict | str | float | bool | None = None) -> None:
+    def remove_elements(self, target: str, paths: JSON | None = None) -> None:
         if paths is None:
             paths = self.paths
 

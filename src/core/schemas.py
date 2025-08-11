@@ -4,8 +4,9 @@ from typing import Annotated
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
-type JSONScalar = str | int | float | bool | None
-type JSONDict = dict[str, JSONDict | JSONScalar]
+type JSON = dict[str, JSON] | list[JSON] | str | int | float | bool | None
+type JSONDict = dict[str, JSON]
+
 
 ENDPOINT = re.compile(
     r"^/(?:[a-z0-9\-._~]+(?:/[a-z0-9\-._~]+)*)?/?$",
