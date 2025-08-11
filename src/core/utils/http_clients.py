@@ -3,19 +3,20 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from http import HTTPMethod
-from typing import Any, Generic, Literal, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 from aiohttp import ClientConnectionError, ClientResponse, ClientResponseError, ClientSession, ClientTimeout
 from httpx import AsyncClient, HTTPStatusError, RequestError, Response
 
-from src.core.errors.exceptions import ExternalAPIError
+from src.core.errors import ExternalAPIError
+
+if TYPE_CHECKING:
+    from src.core.schemas import JSON
 from src.core.settings import ExternalAPISettings  # noqa: TC001
 
 Session = AsyncClient | ClientSession
 SessionT = TypeVar("SessionT", bound=Session)
 
-type JSONScalar = str | int | float | bool | None
-type JSON = dict[str, JSON | JSONScalar] | list[JSON | JSONScalar]
 
 type Method = Literal[
     HTTPMethod.GET,

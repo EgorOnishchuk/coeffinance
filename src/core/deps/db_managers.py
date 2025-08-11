@@ -1,29 +1,31 @@
 from collections.abc import AsyncGenerator
 
-from dishka import Scope, provide
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+import redis.asyncio
+from dishka import Scope, from_context, provide
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
 from src.core.deps.base import BaseProvider
-from src.core.settings import DBCredentials, DBPoolSettings
+from src.core.settings import CacheCredentials, DBCredentials, DBPoolSettings
 from src.core.utils.db_managers import DBManager, SQLAlchemyCompatible, SQLAlchemyDBManager
 
 
 class SQLAlchemyProvider(BaseProvider):
-    def __init__(self, root_model: type[SQLAlchemyCompatible]) -> None:
-        super().__init__()
-        self._root_model = root_model
+    @provide
+    def get_engine(self, credentials: DBCredentials, settings: DBPoolSettings) -> AsyncEngine:
+        return create_async_engine(credentials.dsn, **settings.model_dump(by_alias=True))
 
-        _credentials, _settings = DBCredentials(), DBPoolSettings()
-        self._engine = create_async_engine(_credentials.dsn, **_settings.model_dump(by_alias=True))
-        self._Session = async_sessionmaker(self._engine, expire_on_commit=False)
+    @provide
+    def get_session_maker(self, engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+        return async_sessionmaker(engine, expire_on_commit=False)
 
-    @provide(provides=DBManager)
-    def get_manager(self) -> SQLAlchemyDBManager:
-        return SQLAlchemyDBManager(root_model=self._root_model, engine=self._engine)
+    model = from_context(provides=type[SQLAlchemyCompatible])
+
+    manager = provide(source=SQLAlchemyDBManager, provides=DBManager)
 
     @provide(scope=Scope.REQUEST)
-    async def get_session(self) -> AsyncGenerator[AsyncSession]:
-        async with self._Session() as session:
+    async def get_session(self, session_maker: async_sessionmaker[AsyncSession]) -> AsyncGenerator[AsyncSession]:
+        async with session_maker() as session:
             try:
                 yield session
                 await session.commit()
@@ -32,3 +34,9 @@ class SQLAlchemyProvider(BaseProvider):
                 raise
             finally:
                 await session.close()
+
+
+class RedisProvider(BaseProvider):
+    @provide
+    def get_redis(self, settings: CacheCredentials) -> Redis:
+        return redis.asyncio.from_url(settings.dsn)
