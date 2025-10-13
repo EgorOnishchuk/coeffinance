@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 
 class Logger(Protocol):
@@ -24,4 +24,4 @@ class Logger(Protocol):
         raise NotImplementedError
 
 
-UVICORN_LOGGER = "uvicorn.error"
+UVICORN_LOGGER: Final = "uvicorn.error"
