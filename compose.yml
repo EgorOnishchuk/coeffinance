@@ -17,7 +17,7 @@ services:
                 condition: service_healthy
         command:
             python -O -m uvicorn
-            --factory src.main:main
+            --factory src.main:get_app
             --host 0.0.0.0
             --port 8000
             --workers ${WORKERS:-1}
@@ -30,33 +30,19 @@ services:
         profiles:
             - prod
 
-    web-test:
-        extends:
-            service: web
-        depends_on:
-            db-dev-test:
-                condition: service_healthy
-            cache-dev-test:
-                condition: service_healthy
-        entrypoint: sh docker-entrypoint.sh
-        command: pytest tests
-        profiles:
-            - test
-
     web-dev:
         extends:
             service: web
         depends_on:
-            db-dev-test:
+            db-dev:
                 condition: service_healthy
-            cache-dev-test:
+            cache-dev:
                 condition: service_healthy
         command:
             uvicorn
-            --factory src.main:main
+            --factory src.main:get_app
             --host 0.0.0.0
             --port 8000
-            --log-level ${LOG_LEVEL:-debug}
         develop:
             watch:
                 - action: sync+restart
@@ -67,12 +53,7 @@ services:
                 - action: rebuild
                   path: pyproject.toml
         volumes:
-            - ./src/core/migrator/versions:/app/src/core/migrator/versions
-        logging:
-            driver: json-file
-            options:
-                max-size: ${LOG_SIZE:-3}m
-                max-file: ${LOG_FILES:-1}
+            - ./src/core/db/migrator/versions:/app/src/core/db/migrator/versions
         profiles:
             - dev
 
@@ -107,11 +88,11 @@ services:
         profiles:
             - prod
 
-    db-dev-test:
+    db-dev:
         extends:
             service: db
         ports:
-            - "5432:5432"
+            - ${DB_PORT}:5432
         profiles:
             - dev
             - test
@@ -148,7 +129,7 @@ services:
         profiles:
             - prod
 
-    cache-dev-test:
+    cache-dev:
         extends:
             service: cache
         ports:
