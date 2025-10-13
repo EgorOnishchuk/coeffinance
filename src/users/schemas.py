@@ -1,34 +1,43 @@
 from typing import Annotated
 
-from fastapi_users.schemas import BaseUser, BaseUserCreate, BaseUserUpdate
+from fastapi_users.schemas import (
+    BaseUserCreate,
+    BaseUserUpdate,
+    CreateUpdateDictModel,
+)
 from pydantic import EmailStr, Field
 
-from src.core.schemas import DBSchema, Schema
+from src.core.schemas import Schema
+
+Nickname = Annotated[
+    str, Field(min_length=6, max_length=30, examples=["Ivan Ivanov"])
+]
+Email = Annotated[EmailStr, Field(max_length=256, examples=["ivanov@mail.ru"])]
 
 
-class ExtendedUser(Schema):
+class UserCreate(Schema, BaseUserCreate):
     """
-    Explanations of limitations:
-    nickname — lines with -6 characters are easy to confuse, and lines with 30+ characters are difficult to recognize;
-    email — see RFC 3696.
-    """
-
-    nickname: Annotated[str, Field(min_length=6, max_length=30, examples=["Ivan Ivanov"])]
-    email: Annotated[EmailStr, Field(max_length=256, examples=["ivanov@mail.ru"])]
-
-
-class UserRead(DBSchema, ExtendedUser, BaseUser):
-    pass
-
-
-class UserCreate(ExtendedUser, BaseUserCreate):
-    """
-    By default, an example “string” is created for the str type, which is not a secure password even for debugging.
+    By default, an example “string” is created for the str type, which is not a
+    secure password even for debugging.
     """
 
+    nickname: Nickname
+    email: Email
     password: Annotated[str, Field(examples=["-¯#P'Hä¯Nðfº2>+¶;Öðº±í,M»)î¾æd"])]
 
 
+class UserRead(Schema, CreateUpdateDictModel):
+    nickname: Nickname
+    email: Email
+    is_active: bool = True
+    is_superuser: bool = False
+    is_verified: bool = False
+
+
 class UserUpdate(Schema, BaseUserUpdate):
-    nickname: Annotated[str | None, Field(min_length=6, max_length=30, examples=["Ivan Ivanov"])] = None
-    email: Annotated[EmailStr | None, Field(max_length=256, examples=["ivanov@mail.ru"])] = None
+    nickname: Annotated[
+        str | None, Field(min_length=6, max_length=30, examples=["Ivan Ivanov"])
+    ] = None
+    email: Annotated[
+        EmailStr | None, Field(max_length=256, examples=["ivanov@mail.ru"])
+    ] = None
