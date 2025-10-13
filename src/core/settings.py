@@ -1,14 +1,17 @@
+from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from http import HTTPMethod
-from typing import Annotated
+from typing import Annotated, Self, override
 
 from pydantic import (
-    AfterValidator,
     EmailStr,
     Field,
     HttpUrl,
     PositiveFloat,
     PositiveInt,
+    field_serializer,
 )
+from pydantic_core.core_schema import SerializerFunctionWrapHandler
 from pydantic_extra_types.semantic_version import SemanticVersion
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22,30 +25,95 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @classmethod
+    def load(cls) -> Self:
+        """
+        Allows to bypass warnings from linters and type checkers about «missing»
+        constructor arguments.
+        """
+        return cls()
+
 
 class DBCredentials(Settings):
     schema_: Annotated[NonEmptyStr, Field(validation_alias="db_schema")]
     host: Annotated[NonEmptyStr, Field(validation_alias="db_host")]
+    port: Annotated[PositiveInt, Field(validation_alias="db_port")]
     user: Annotated[NonEmptyStr, Field(validation_alias="db_user")]
     password: Annotated[NonEmptyStr, Field(validation_alias="db_password")]
     db_name: NonEmptyStr
 
     @property
     def dsn(self) -> str:
-        return f"{self.schema_}://{self.user}:{self.password}@{self.host}/{self.db_name}"
+        return f"{self.schema_}://{self.user}:{self.password}@{self.host}:{self.port}/{self.db_name}"
 
 
-class DBPoolSettings(Settings):
-    size: Annotated[PositiveInt, Field(validation_alias="db_pool_size", serialization_alias="pool_size")] = 10
-    overflow: Annotated[PositiveInt, Field(validation_alias="db_pool_overflow", serialization_alias="max_overflow")] = 3
-    timeout: Annotated[PositiveFloat, Field(validation_alias="db_timeout", serialization_alias="pool_timeout")] = 5.0
+class DBSettings(Settings):
+    size: Annotated[
+        PositiveInt,
+        Field(validation_alias="db_pool_size"),
+    ] = 10
+    overflow: Annotated[
+        PositiveInt,
+        Field(
+            validation_alias="db_pool_overflow",
+        ),
+    ] = 3
+    timeout: Annotated[
+        PositiveFloat,
+        Field(validation_alias="db_timeout"),
+    ] = 15
+    retries: Annotated[
+        PositiveInt,
+        Field(validation_alias="db_retries"),
+    ] = 5
 
 
-class CacheCredentials(Settings):
+class ExternalAPISettings(Settings):
+    api_fns_token: Annotated[str, Field(pattern=SHA_1)]
+
+    timeout: Annotated[
+        PositiveFloat,
+        Field(validation_alias="external_api_timeout"),
+    ] = 30.0
+    retries: Annotated[
+        PositiveInt,
+        Field(validation_alias="external_api_retries"),
+    ] = 3
+
+
+class MailSettings(Settings):
+    host: Annotated[NonEmptyStr, Field(validation_alias="email_host")]
+    user: Annotated[NonEmptyStr, Field(validation_alias="email_user")]
+    password: Annotated[NonEmptyStr, Field(validation_alias="email_password")]
+
+    timeout: Annotated[
+        PositiveFloat, Field(validation_alias="email_timeout")
+    ] = 30.0
+    retries: Annotated[
+        PositiveInt,
+        Field(validation_alias="external_api_retries"),
+    ] = 3
+
+
+class CacheCredentials(Settings, ABC):
+    """
+    It is used selectively and for trivial tasks (sessions, counters, etc.), so
+    advanced access rights system is not required: unlike the main dbms, all
+    actions are performed on behalf of the default user.
+    """
+
     password: Annotated[NonEmptyStr, Field(validation_alias="cache_password")]
     host: Annotated[NonEmptyStr, Field(validation_alias="cache_host")]
 
     @property
+    @abstractmethod
+    def dsn(self) -> str:
+        pass
+
+
+class RedisCredentials(CacheCredentials):
+    @property
+    @override
     def dsn(self) -> str:
         return f"redis://default:{self.password}@{self.host}"
 
@@ -57,33 +125,18 @@ class AuthSettings(Settings):
     sys_email: EmailStr
 
 
-class EmailSettings(Settings):
-    host: Annotated[NonEmptyStr, Field(validation_alias="email_host")]
-    user: Annotated[NonEmptyStr, Field(validation_alias="email_user")]
-    password: Annotated[NonEmptyStr, Field(validation_alias="email_password")]
-
-    timeout: Annotated[PositiveFloat, Field(validation_alias="email_timeout")] = 30.0
-
-
-class ExternalAPISettings(Settings):
-    api_fns_token: Annotated[str, Field(pattern=SHA_1)]
-
-    timeout: Annotated[
-        PositiveFloat,
-        Field(validation_alias="external_api_timeout"),
-    ] = 10.0
-
-
 class TrustedHostsSettings(Settings):
-    hosts: Annotated[list[NonEmptyStr] | None, Field(alias="allowed_hosts")] = [
+    hosts: Annotated[
+        Sequence[NonEmptyStr] | None, Field(alias="allowed_hosts")
+    ] = (
         "localhost",
-        "test",
-    ]
+        "coeffinance.com",
+    )
 
 
 class CORSSettings(Settings):
     allowed_origins: Annotated[
-        list[HttpUrl] | None,
+        Sequence[HttpUrl] | None,
         Field(serialization_alias="allow_origins"),
     ] = None
     allowed_origin_regex: Annotated[
@@ -91,22 +144,24 @@ class CORSSettings(Settings):
         Field(serialization_alias="allow_origin_regex"),
     ] = None
     allowed_methods: Annotated[
-        list[HTTPMethod] | None,
+        Sequence[HTTPMethod] | None,
         Field(serialization_alias="allow_methods"),
     ] = None
     allowed_headers: Annotated[
-        list[NonEmptyStr] | None,
+        Sequence[NonEmptyStr] | None,
         Field(serialization_alias="allow_headers"),
     ] = None
-    is_credentials: Annotated[
+    are_credentials: Annotated[
         bool | None,
         Field(serialization_alias="allow_credentials"),
     ] = None
     exposed_headers: Annotated[
-        list[NonEmptyStr] | None,
+        Sequence[NonEmptyStr] | None,
         Field(serialization_alias="expose_headers"),
     ] = None
-    cache_time: Annotated[PositiveInt | None, Field(serialization_alias="max_age")] = None
+    cache_time: Annotated[
+        PositiveInt | None, Field(serialization_alias="max_age")
+    ] = None
 
 
 class CompressionSettings(Settings):
@@ -123,8 +178,10 @@ class CompressionSettings(Settings):
 class DocsSettings(Settings):
     title: Annotated[NonEmptyStr, Field(max_length=50)]
     summary: Annotated[str | None, Field(min_length=5, max_length=150)] = None
-    description: Annotated[str | None, Field(min_length=5, max_length=500)] = None
-    version: Annotated[SemanticVersion, AfterValidator(lambda val: str(val))]
+    description: Annotated[str | None, Field(min_length=5, max_length=500)] = (
+        None
+    )
+    version: SemanticVersion
     terms_of_service: HttpUrl | None = None
     contact: dict[str, NonEmptyStr | HttpUrl | EmailStr] | None = None
     license: Annotated[
@@ -147,3 +204,9 @@ class DocsSettings(Settings):
         str | None,
         Field(serialization_alias="redoc_url", pattern=ENDPOINT),
     ] = None
+
+    @field_serializer("version", mode="wrap")
+    def serialize_version(
+        self, version: SemanticVersion, handler: SerializerFunctionWrapHandler
+    ) -> str:
+        return str(version)
