@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import typing
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import (
@@ -38,27 +37,8 @@ if TYPE_CHECKING:
 
 def patch_cadwyn() -> None:
     """
-    Temporary fix for generics. Issue and PR are coming.
+    Temporary fix for generics: https://github.com/zmievsa/cadwyn/pull/303.
     """
-
-    def resolve_typevars(type_, mapping):
-        if isinstance(type_, TypeVar):
-            return mapping.get(type_, type_)
-
-        origin = typing.get_origin(type_)
-        if not origin:
-            return type_
-
-        args = tuple(
-            resolve_typevars(a, mapping) for a in typing.get_args(type_)
-        )
-        from types import UnionType
-
-        return (
-            typing.Union[args]
-            if origin in {typing.Union, UnionType}
-            else origin[args]
-        )
 
     def generate_model_copy(
         self, generator: SchemaGenerator
@@ -69,7 +49,7 @@ def patch_cadwyn() -> None:
             )
             for name, validator in self.validators.items()
             if not validator.is_deleted
-            and type(validator) == _PerFieldValidatorWrapper
+            and type(validator) == _PerFieldValidatorWrapper  # noqa: E721
         }
         root_validators = {
             name: validator.decorator(**validator.kwargs)(validator.func)
@@ -80,35 +60,6 @@ def patch_cadwyn() -> None:
             name: field.generate_field_copy(generator)
             for name, field in self.fields.items()
         }
-
-        annotations = self.annotations
-
-        if hasattr(self.cls, "__pydantic_generic_metadata__"):
-            metadata = self.cls.__pydantic_generic_metadata__
-            origin_model = metadata["origin"]
-
-            parameters = getattr(origin_model, "__parameters__", ())
-
-            versioned_args = []
-            for arg in metadata["args"]:
-                try:
-                    versioned_args.append(generator[arg])
-                except KeyError:
-                    versioned_args.append(arg)
-
-            if parameters and len(parameters) == len(versioned_args):
-                substitution_map = dict(
-                    zip(parameters, versioned_args, strict=False)
-                )
-
-                resolved_annotations = {
-                    name: resolve_typevars(type_, substitution_map)
-                    for name, type_ in typing.get_type_hints(
-                        origin_model
-                    ).items()
-                }
-
-                annotations = resolved_annotations
 
         model_copy = type(self.cls)(
             self.name,
@@ -123,7 +74,7 @@ def patch_cadwyn() -> None:
             | fields
             | {
                 "__annotations__": generator.annotation_transformer.change_version_of_annotation(
-                    annotations
+                    self.annotations,
                 ),
                 "__doc__": self.doc,
                 "__qualname__": self.cls.__qualname__.removesuffix(
@@ -131,6 +82,7 @@ def patch_cadwyn() -> None:
                 )
                 + self.name,
             },
+            __pydantic_generic_metadata__=self.cls.__pydantic_generic_metadata__,
         )
 
         model_copy.__cadwyn_original_model__ = self.cls
