@@ -57,6 +57,7 @@ class SQLAlchemyUser(SQLAlchemyBaseUserTable[int], SQLAlchemyIDModel):
             "SQLAlchemyCompany",
             secondary="companies_users",
             back_populates="users",
+            order_by="SQLAlchemyCompany.name"
         )
 
         __table_args__ = (

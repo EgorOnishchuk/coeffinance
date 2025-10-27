@@ -34,6 +34,7 @@ class SQLAlchemyAnalytics(SQLAlchemyIDModel):
     ratios: Mapped[list[SQLAlchemyRatio]] = relationship(
         SQLAlchemyRatio,
         cascade="all, delete-orphan",
+        order_by=SQLAlchemyRatio.name,
     )
 
     company_id: Mapped[int] = mapped_column(

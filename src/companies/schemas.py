@@ -1,7 +1,8 @@
 import re
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated
+from functools import total_ordering
+from typing import Annotated, Self
 
 from pycountry import countries
 from pydantic import AwareDatetime, Field, field_validator
@@ -76,6 +77,7 @@ class RussianCompanyCreate(RussianBRN, CompanyCreate):
     country: CountryShortName = CountryShortName("Russian Federation")
 
 
+@total_ordering
 class CompanyRead(Schema):
     name: BaseName
     brn: BaseBRN
@@ -85,6 +87,9 @@ class CompanyRead(Schema):
 
     analytics: list[Analytics]
     users: list[UserRead]
+
+    def __gt__(self, other: Self) -> bool:
+        return self.name > other.name
 
 
 class CompanySearch(Schema):

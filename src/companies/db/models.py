@@ -96,11 +96,13 @@ class SQLAlchemyCompany(SQLAlchemyIDModel):
     analytics: Mapped[list[SQLAlchemyAnalytics]] = relationship(
         SQLAlchemyAnalytics,
         cascade="all, delete-orphan",
+        order_by=SQLAlchemyAnalytics.name,
     )
     users: Mapped[list[SQLAlchemyUser]] = relationship(
         "SQLAlchemyUser",
         secondary=companies_users,
         back_populates="companies",
+        order_by="SQLAlchemyUser.nickname",
     )
 
     __table_args__ = (
