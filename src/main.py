@@ -2,7 +2,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Final
 
-from cadwyn import HeadVersion, Version, VersionBundle
+from cadwyn import Version, VersionBundle
 from dishka import Provider, make_async_container
 
 from src.companies.deps import get_company_deps
@@ -56,7 +56,6 @@ def get_app() -> ExtendedFastAPI:
         **docs.model_dump(by_alias=True, exclude_none=True),
         lifespan=lifespan,
         versions=VersionBundle(
-            HeadVersion(),
             Version(str(docs.version.major)),
         ),
     )

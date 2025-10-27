@@ -11,7 +11,7 @@ from _pytest.fixtures import FixtureRequest
 from alembic import command
 from alembic.config import Config
 from asgi_lifespan import LifespanManager
-from cadwyn import HeadVersion, Version, VersionBundle
+from cadwyn import Version, VersionBundle
 from dishka import (
     STRICT_VALIDATION,
     AsyncContainer,
@@ -100,7 +100,6 @@ def app(container: AsyncContainer) -> ExtendedFastAPI:
         ),
         container=container,
         versions=VersionBundle(
-            HeadVersion(),
             Version(str(DocsSettings.load().version.major)),
         ),
     )
