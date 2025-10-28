@@ -1,127 +1,109 @@
-"""
-fastapi-users is hardwired with FastAPI Depends, so some providers create factories for the objects as dependencies
-rather than the objects themselves to ensure correct integration of Dishka with Depends.
-"""
+from functools import lru_cache
+from typing import Annotated
 
-from collections.abc import AsyncGenerator, Awaitable, Callable
-from typing import Annotated, NewType
-
-from dishka import provide
+from dishka import Provider, provide
 from fastapi import Depends
 from fastapi_users import FastAPIUsers
-from fastapi_users.authentication import AuthenticationBackend, BearerTransport, RedisStrategy
-from fastapi_users.db import BaseUserDatabase
-from fastapi_users.manager import UserManagerDependency
-from fastapi_users.models import UP
+from fastapi_users.authentication import (
+    AuthenticationBackend,
+    BearerTransport,
+    RedisStrategy,
+)
 from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
-from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from src.core.asgi import Architecture, ExtendedRequest
+from src.core.db.sessions import SQLAlchemySession
 from src.core.deps.base import BaseProvider
+from src.core.deps.db import Redis_
 from src.core.settings import AuthSettings
-from src.core.utils.email_clients import EmailClient
-from src.users.models import SQLAlchemyUser
-from src.users.service import SQLAlchemyUserManager
-from src.users.utils.utils import PasswordValidator, SecurePassLibValidator
+from src.users.db.models import DBUserProtocol, SQLAlchemyUser
+from src.users.service import UserManager
+from src.users.utils.password_validators import (
+    PasswordValidator,
+    ZXCVBNValidator,
+)
 
 
-class SecurePassLibValidatorProvider(BaseProvider):
-    validator = provide(source=SecurePassLibValidator, provides=PasswordValidator, recursive=True)
+class ZXCVBNProvider(BaseProvider):
+    validator = provide(
+        source=ZXCVBNValidator,
+        provides=PasswordValidator,
+    )
 
 
-MultiFrontend = NewType("MultiFrontend", AuthenticationBackend)
-
-
-class BearerProvider(BaseProvider):
+class AuthProvider(BaseProvider):
     @provide
-    def get_transport(self) -> BearerTransport:
-        return BearerTransport(tokenUrl="users/auth/login")
+    def get_settings(self) -> AuthSettings:
+        return AuthSettings.load()
 
 
-class RedisStrategyProvider(BaseProvider):
-    @provide
-    def get_strategy(self, redis: Redis) -> RedisStrategy:
-        return RedisStrategy(redis, lifetime_seconds=3600)
+@lru_cache
+def get_fastapi_users() -> FastAPIUsers[DBUserProtocol, int]:
+    """
+    FastAPI Depends style is required here for integrating fastapi-users with
+    Dishka Providers, as the lib is tightly coupled with the routing layer.
+    This approach allows routers to be included in the app synchronously,
+    since async deps are declared now but called later.
+    """
 
-    @provide
-    def get_strategy_dep(self, strategy: RedisStrategy) -> Callable[[], AsyncGenerator[RedisStrategy]]:
-        async def _strategy_dep() -> AsyncGenerator[RedisStrategy]:
-            yield strategy
+    bearer = BearerTransport(
+        tokenUrl=f"{Architecture.JSON_API}/{{version}}/users/auth/universal/login"
+    )
 
-        return _strategy_dep
+    async def get_redis_strategy(
+        request: ExtendedRequest,
+    ) -> RedisStrategy[DBUserProtocol, int]:
+        redis_ = await request.state.dishka_container.get(Redis_)
 
+        return RedisStrategy[DBUserProtocol, int](redis_, lifetime_seconds=3600)
 
-class MultiFrontendProvider(BaseProvider):
-    @provide(provides=MultiFrontend)
-    def get_auth(
-        self, transport: BearerTransport, strategy_dep: Callable[[], AsyncGenerator[RedisStrategy]]
-    ) -> AuthenticationBackend:
-        return AuthenticationBackend(name="Multifrontend", transport=transport, get_strategy=strategy_dep)
+    # «Universal» here means the ability to be used equally effectively with
+    # different frontends thanks to the platform-independent Bearer and
+    # lightweight Redis.
+    universal_backend = AuthenticationBackend[DBUserProtocol, int](
+        name="universal",
+        transport=bearer,
+        get_strategy=get_redis_strategy,
+    )
 
+    async def get_sqlalchemy_db(
+        request: ExtendedRequest,
+    ) -> SQLAlchemyUserDatabase[DBUserProtocol, int]:
+        session = await request.state.dishka_container.get(SQLAlchemySession)
 
-class UserManagerSQLAlchemyProvider(BaseProvider):
-    @provide(provides=type[UP])
-    def get_model(self) -> type[SQLAlchemyUser]:
-        return SQLAlchemyUser
+        return SQLAlchemyUserDatabase[DBUserProtocol, int](
+            session=session,
+            user_table=SQLAlchemyUser,
+        )
 
-    @provide
-    def get_session_dep(
-        self, session_maker: async_sessionmaker[AsyncSession]
-    ) -> Callable[[], AsyncGenerator[AsyncSession]]:
-        async def _session_dep() -> AsyncGenerator[AsyncSession]:
-            async with session_maker() as session:
-                try:
-                    yield session
-                    await session.commit()
-                except:
-                    await session.rollback()
-                    raise
-                finally:
-                    await session.close()
+    async def get_user_manager(
+        request: ExtendedRequest,
+        db: Annotated[
+            SQLAlchemyUserDatabase[DBUserProtocol, int],
+            Depends(get_sqlalchemy_db),
+        ],
+    ) -> UserManager:
+        container = request.state.dishka_container
 
-        return _session_dep
+        return UserManager(
+            user_db=db,
+            settings=await container.get(AuthSettings),
+            password_validator=await container.get(PasswordValidator),
+        )
 
-    @provide(provides=Callable[[AsyncSession], Awaitable[BaseUserDatabase]])
-    def get_db_dep(
-        self, session_dep: Callable[[], AsyncGenerator[AsyncSession]], model: type[UP]
-    ) -> Callable[[AsyncSession], Awaitable[SQLAlchemyUserDatabase]]:
-        async def _db_dep(session: Annotated[AsyncSession, Depends(session_dep)]) -> SQLAlchemyUserDatabase:
-            return SQLAlchemyUserDatabase(session=session, user_table=model)
-
-        return _db_dep
-
-    @provide(provides=UserManagerDependency)
-    def get_manager_dep(
-        self,
-        db_dep: Callable[[AsyncSession], Awaitable[BaseUserDatabase]],
-        settings: AuthSettings,
-        client: EmailClient,
-        validator: PasswordValidator,
-    ) -> Callable[[BaseUserDatabase], Awaitable[SQLAlchemyUserManager]]:
-        async def _manager_dep(db: Annotated[BaseUserDatabase, Depends(db_dep)]) -> SQLAlchemyUserManager:
-            return SQLAlchemyUserManager(
-                user_db=db, settings=settings, email_client=client, password_validator=validator
-            )
-
-        return _manager_dep
+    return FastAPIUsers[DBUserProtocol, int](
+        get_user_manager=get_user_manager,
+        auth_backends=(universal_backend,),
+    )
 
 
-class FastAPIUsersProvider(BaseProvider):
-    @provide
-    def get_fastapi_users(
-        self,
-        manager: UserManagerDependency,
-        multi_frontend: MultiFrontend,
-    ) -> FastAPIUsers:
-        return FastAPIUsers(get_user_manager=manager, auth_backends=[multi_frontend])
+async def get_authenticated() -> DBUserProtocol:
+    dep = get_fastapi_users().current_user(active=True, verified=True)
+    return await dep()  # type: ignore[no-any-return] # pyright: ignore[reportReturnType]
 
 
-def get_user_deps() -> tuple[BaseProvider, ...]:
+def get_user_deps() -> tuple[Provider, ...]:
     return (
-        SecurePassLibValidatorProvider(),
-        BearerProvider(),
-        RedisStrategyProvider(),
-        MultiFrontendProvider(),
-        UserManagerSQLAlchemyProvider(),
-        FastAPIUsersProvider(),
+        ZXCVBNProvider(),
+        AuthProvider(),
     )

@@ -3,130 +3,122 @@ name = "coeffinance"
 version = "0.1.0"
 description = "Expert system for ratio financial analysis of business."
 readme = "README.md"
+
 requires-python = ">=3.13"
 dependencies = [
     "aiohttp>=3.12.14",
     "aiosmtplib>=4.0.1",
     "alembic>=1.16.4",
+    "alembic-postgresql-enum>=1.8.0",
     "asgi-lifespan>=2.1.0",
     "asyncpg>=0.30.0",
+    "cadwyn[standard]>=5.4.4",
     "dishka>=1.6.0",
     "email-validator>=2.2.0",
     "fastapi>=0.115.11",
+    "fastapi-pagination>=0.14.0",
     "fastapi-users[redis,sqlalchemy]>=14.0.1",
     "fastcrud>=0.15.12",
     "httpx>=0.28.1",
+    "pycountry>=24.6.1",
     "pydantic-extra-types>=2.10.2",
     "pydantic-settings>=2.8.1",
-    "pytest-asyncio>=0.25.3",
-    "securepasslib>=1.0.3",
     "semver>=3.0.4",
+    "sqlakeyset>=2.0.1746777265",
     "sqlmodel>=0.0.24",
+    "tenacity>=9.1.2",
     "uvicorn>=0.34.0",
+    "zxcvbn>=4.5.0",
 ]
 
 [dependency-groups]
 dev = [
     "asyncpg-stubs>=0.30.1",
     "mypy>=1.15.0",
+    "pyright>=1.1.404",
     "ruff>=0.9.10",
+    "types-redis>=4.6.0.20241004",
+    "types-zxcvbn>=4.5.0.20250809",
+]
+test = [
+    "polyfactory>=2.22.2",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "pytest-icdiff>=0.9",
+    "testcontainers[postgres]>=4.13.0",
 ]
 
 [tool.alembic]
-# path to migration scripts
-script_location = "%(here)s/src/core/migrator"
-
-# template used to generate migration file names; The default value is %%(rev)s_%%(slug)s
-# Uncomment the line below if you want the files to be prepended with date and time
-# file_template = %%(year)d_%%(month).2d_%%(day).2d_%%(hour).2d%%(minute).2d-%%(rev)s_%%(slug)s
-
-# additional paths to be prepended to sys.path. defaults to the current working directory.
+script_location = "%(here)s/src/core/db/migrator"
 prepend_sys_path = [
     ".",
 ]
-
-# timezone to use when rendering the date within the migration file
-# as well as the filename.
-# If specified, requires the python>=3.9 or backports.zoneinfo library and tzdata library.
-# Any required deps can installed by adding `alembic[tz]` to the pip requirements
-# string value is passed to ZoneInfo()
-# leave blank for localtime
-# timezone =
-
-# max length of characters to apply to the
-# "slug" field
-# truncate_slug_length = 40
-
-# set to 'true' to run the environment during
-# the 'revision' command, regardless of autogenerate
-# revision_environment = false
-
-# set to 'true' to allow .pyc and .pyo files without
-# a source .py file to be detected as revisions in the
-# versions/ directory
-# sourceless = false
-
-# version location specification; This defaults
-# to <script_location>/versions.  When using multiple version
-# directories, initial revisions must be specified with --version-path.
-# version_locations = [
-#    "%(here)s/alembic/versions",
-#    "%(here)s/foo/bar"
-# ]
-
-# set to 'true' to search source files recursively
-# in each "version_locations" directory
-# new in Alembic version 1.10
-# recursive_version_locations = false
-
-# the output encoding used when revision files
-# are written from script.py.mako
-# output_encoding = "utf-8"
-
-
-# This section defines scripts or Python functions that are run
-# on newly generated revision scripts.  See the documentation for further
-# detail and examples
-# [[tool.alembic.post_write_hooks]]
-# format using "black" - use the console_scripts runner,
-# against the "black" entrypoint
-# name = "black"
-# type = "console_scripts"
-# entrypoint = "black"
-# options = "-l 79 REVISION_SCRIPT_FILENAME"
-#
-
-# [[tool.alembic.post_write_hooks]]
-# lint with attempts to fix using "ruff" - use the exec runner,
-# execute a binary
-# name = "ruff"
-# type = "exec"
-# executable = "%(here)s/.venv/bin/ruff"
-# options = "check --fix REVISION_SCRIPT_FILENAME"
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.mypy]
+exclude = [
+    "src/core/db/migrator/versions",
+]
+
+strict = true
+# Enables most rules that are not even included in strict mode.
+warn_unreachable = true
+warn_incomplete_stub = true
+
 plugins = [
     'pydantic.mypy',
 ]
+
+[[tool.mypy.overrides]]
+module = ["testcontainers.*"]
+# The lib is de facto typed: https://github.com/testcontainers/testcontainers-python/issues/305.
+follow_untyped_imports = true
+
+[tool.pyright]
 exclude = [
-    "src/core/migrator",
+    "**/.*",
+    "**/.*/**",
+    "**/__pycache__",
+    "src/core/db/migrator/versions",
 ]
-disable_error_code = ["import-untyped"]
+
+# Separates MyPy ignores, as this type checker does not have a narrowed
+# directive such as «mypy: ignore».
+enableTypeIgnoreComments = false
+
+typeCheckingMode = "strict"
+# Enables most rules that are not even included in strict mode.
+deprecateTypingAliases = true
+reportCallInDefaultInitializer = "error"
+reportImplicitOverride = "error"
+reportImportCycles = "error"
+reportPropertyTypeMismatch = "error"
+reportShadowedImports = "error"
+reportUninitializedInstanceVariable = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+reportUnreachable = "error"
+
+# Due to the presence of many third-party libraries with a minor lack of typing.
+reportUnknownParameterType = false
+reportUnknownArgumentType = false
+reportUnknownLambdaType = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
 
 [tool.ruff]
-target-version = "py313"
-line-length = 120
-extend-exclude = [
-    "src/core/migrator",
+line-length = 80
+
+exclude = [
+    "src/core/db/migrator/versions",
 ]
 
 [tool.ruff.lint]
 select = [
     "ALL",
 ]
+
 ignore = [
     "ARG",
     "D",
@@ -134,6 +126,7 @@ ignore = [
 
     "ANN401",
     "COM812",
+    "RUF002",
     "S101",
     "TRY003",
 ]
