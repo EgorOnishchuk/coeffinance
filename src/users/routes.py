@@ -2,25 +2,25 @@ from http import HTTPStatus
 
 from fastapi import APIRouter
 
-from src.core.asgi import Architecture, ExtendedRouter
-from src.core.schemas import PublicError
+from src.core.asgi import APIArchitecture, RouterExtended
+from src.core.validators import PublicError
 from src.core.utils.openapi import ResponseEditor
 from src.users.deps import get_fastapi_users
-from src.users.schemas import UserCreate, UserRead, UserUpdate
+from src.users.schemas import UserCreate, User, UserUpdate
 
 
-def get_user_router() -> ExtendedRouter:
-    router = ExtendedRouter(
-        prefix=f"/{Architecture.JSON_API}/{{version}}/users",
+def user_router() -> RouterExtended:
+    router = RouterExtended(
+        prefix=f"/{APIArchitecture.REST}/{{version}}/users",
         tags=["users"],
     )
 
     fastapi_users = get_fastapi_users()
 
     for sub_router in (
-        fastapi_users.get_register_router(UserRead, UserCreate),  # type: ignore[type-var] # pyright: ignore[reportArgumentType]
-        fastapi_users.get_verify_router(UserRead),  # type: ignore[type-var] # pyright: ignore[reportArgumentType]
-        fastapi_users.get_reset_password_router(),
+            fastapi_users.get_register_router(User, UserCreate),  # type: ignore[type-var] # pyright: ignore[reportArgumentType]
+            fastapi_users.get_verify_router(User),  # type: ignore[type-var] # pyright: ignore[reportArgumentType]
+            fastapi_users.get_reset_password_router(),
     ):
         router.include_router(sub_router, prefix="/auth", tags=["auth"])
 
@@ -40,7 +40,7 @@ def get_user_router() -> ExtendedRouter:
     router.include_router(
         APIRouter(
             routes=fastapi_users.get_users_router(
-                UserRead,  # type: ignore[type-var] # pyright: ignore[reportArgumentType]
+                User,  # type: ignore[type-var] # pyright: ignore[reportArgumentType]
                 UserUpdate,
                 requires_verification=True,
             ).routes[:profile_routes]

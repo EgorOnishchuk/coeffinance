@@ -8,7 +8,7 @@ from fastapi_users.schemas import (
 )
 from pydantic import EmailStr, Field
 
-from src.core.schemas import Schema
+from src.core.validators import CoreValidator
 
 Nickname = Annotated[
     str, Field(min_length=6, max_length=30, examples=["Ivan Ivanov"])
@@ -16,19 +16,14 @@ Nickname = Annotated[
 Email = Annotated[EmailStr, Field(max_length=256, examples=["ivanov@mail.ru"])]
 
 
-class UserCreate(Schema, BaseUserCreate):
-    """
-    By default, an example “string” is created for the str type, which is not a
-    secure password even for debugging.
-    """
-
+class UserCreate(CoreValidator, BaseUserCreate):
     nickname: Nickname
     email: Email
     password: Annotated[str, Field(examples=["-¯#P'Hä¯Nðfº2>+¶;Öðº±í,M»)î¾æd"])]
 
 
 @total_ordering
-class UserRead(Schema, CreateUpdateDictModel):
+class User(CoreValidator, CreateUpdateDictModel):
     nickname: Nickname
     email: Email
     is_active: bool = True
@@ -38,8 +33,11 @@ class UserRead(Schema, CreateUpdateDictModel):
     def __gt__(self, other: Self) -> bool:
         return self.nickname > other.nickname
 
+    def __eq__(self, other: Self) -> bool:
+        return self.nickname == other.nickname
 
-class UserUpdate(Schema, BaseUserUpdate):
+
+class UserUpdate(CoreValidator, BaseUserUpdate):
     nickname: Annotated[
         str | None, Field(min_length=6, max_length=30, examples=["Ivan Ivanov"])
     ] = None

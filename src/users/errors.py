@@ -1,12 +1,13 @@
-from fastapi import HTTPException, Response, status
+from collections.abc import Awaitable, Callable
 
-from src.core.asgi import ExtendedRequest, HandlingPair
+from fastapi import Response
+
+from src.core.asgi import HTTPStatus, TypedRequest, WSStatus
 from src.core.errors import (
     DetailedError,
-    serialize,
+    detailed_handler,
+    nondetailed_handler,
 )
-from src.core.schemas import PublicError
-from src.core.utils.loggers import Logger
 
 
 class WeakPasswordError(DetailedError):
@@ -93,111 +94,30 @@ class PasswordResetError(DetailedError):
         super().__init__(msg, user_msg=msg, ways_to_solve=ways_to_solve)
 
 
-@serialize
-async def weak_password_handler(
-    request: ExtendedRequest, exc: WeakPasswordError
-) -> tuple[PublicError, int]:
-    (await request.state.dishka_container.get(Logger)).debug(exc)
+def get_user_handling_map() -> tuple[
+    tuple[
+        Exception | HTTPStatus | WSStatus,
+        Callable[[TypedRequest, Exception], Awaitable[Response]],
+    ],
+    ...,
+]:
+    bad_request_handler = detailed_handler(
+        HTTPStatus.HTTP_400_BAD_REQUEST,
+    )
 
-    return PublicError(
-        reason=exc.user_msg, ways_to_solve=exc.ways_to_solve
-    ), status.HTTP_400_BAD_REQUEST
-
-
-@serialize
-async def authentication_handler(
-    request: ExtendedRequest, exc: AuthenticationError
-) -> tuple[PublicError, int]:
-    (await request.state.dishka_container.get(Logger)).debug(exc)
-
-    return PublicError(
-        reason=exc.user_msg, ways_to_solve=exc.ways_to_solve
-    ), status.HTTP_400_BAD_REQUEST
-
-
-@serialize
-async def unverified_handler(
-    request: ExtendedRequest, exc: UnverifiedError
-) -> tuple[PublicError, int]:
-    (await request.state.dishka_container.get(Logger)).debug(exc)
-
-    return PublicError(
-        reason=exc.user_msg, ways_to_solve=exc.ways_to_solve
-    ), status.HTTP_400_BAD_REQUEST
-
-
-@serialize
-async def verification_handler(
-    request: ExtendedRequest, exc: VerificationError
-) -> tuple[PublicError, int]:
-    (await request.state.dishka_container.get(Logger)).debug(exc)
-
-    return PublicError(
-        reason=exc.user_msg, ways_to_solve=exc.ways_to_solve
-    ), status.HTTP_400_BAD_REQUEST
-
-
-@serialize
-async def already_verified_handler(
-    request: ExtendedRequest, exc: AlreadyVerifiedError
-) -> tuple[PublicError, int]:
-    (await request.state.dishka_container.get(Logger)).debug(exc)
-
-    return PublicError(
-        reason=exc.user_msg, ways_to_solve=exc.ways_to_solve
-    ), status.HTTP_400_BAD_REQUEST
-
-
-@serialize
-async def password_reset_handler(
-    request: ExtendedRequest, exc: PasswordResetError
-) -> tuple[PublicError, int]:
-    (await request.state.dishka_container.get(Logger)).debug(exc)
-
-    return PublicError(
-        reason=exc.user_msg, ways_to_solve=exc.ways_to_solve
-    ), status.HTTP_400_BAD_REQUEST
-
-
-# These exceptions do not require a body (see core/errors.py for details).
-
-
-async def unauthenticated_handler(
-    request: ExtendedRequest, exc: HTTPException
-) -> Response:
-    (await request.state.dishka_container.get(Logger)).debug(exc)
-
-    return Response(status_code=status.HTTP_401_UNAUTHORIZED)
-
-
-async def unauthorized_handler(
-    request: ExtendedRequest, exc: HTTPException
-) -> Response:
-    (await request.state.dishka_container.get(Logger)).exception(exc)
-
-    return Response(status_code=status.HTTP_403_FORBIDDEN)
-
-
-def get_user_handling_map() -> tuple[HandlingPair[Exception], ...]:
     return (
-        HandlingPair[WeakPasswordError](
-            exc=WeakPasswordError, handler=weak_password_handler
+        (WeakPasswordError, bad_request_handler),
+        (AlreadyExistsError, bad_request_handler),
+        (AuthenticationError, bad_request_handler),
+        (UnverifiedError, bad_request_handler),
+        (VerificationError, bad_request_handler),
+        (AlreadyVerifiedError, bad_request_handler),
+        (PasswordResetError, bad_request_handler),
+        (
+            HTTPStatus.HTTP_403_FORBIDDEN,
+            nondetailed_handler(
+                HTTPStatus.HTTP_403_FORBIDDEN,
+                "warning",
+            ),
         ),
-        HandlingPair[AuthenticationError](
-            exc=AuthenticationError, handler=authentication_handler
-        ),
-        HandlingPair[UnverifiedError](
-            exc=UnverifiedError, handler=unverified_handler
-        ),
-        HandlingPair[VerificationError](
-            exc=VerificationError, handler=verification_handler
-        ),
-        HandlingPair[AlreadyVerifiedError](
-            exc=AlreadyVerifiedError, handler=already_verified_handler
-        ),
-        HandlingPair[PasswordResetError](
-            exc=PasswordResetError, handler=password_reset_handler
-        ),
-        HandlingPair[HTTPException](exc=401, handler=unauthenticated_handler),
-        HandlingPair[HTTPException](exc=403, handler=unauthorized_handler),
     )

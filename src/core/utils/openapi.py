@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from typing import Any
 
-from src.core.schemas import Schema
+from src.core.validators import CoreValidator
 
 
 @dataclass(kw_only=True, slots=True, frozen=True)
@@ -19,7 +19,7 @@ class ResponseEditor:
     def override_error(
         self,
         *,
-        error: type[Schema],
+        error: type[CoreValidator],
         code: HTTPStatus,
     ) -> None:
         for response in self._responses:

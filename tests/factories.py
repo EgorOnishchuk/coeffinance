@@ -5,16 +5,16 @@ from polyfactory import AsyncPersistenceProtocol, BaseFactory
 from polyfactory.factories.pydantic_factory import ModelFactory
 from polyfactory.factories.sqlalchemy_factory import SQLAlchemyFactory
 
-from src.core.db.models import SQLAlchemyModel, SQLAlchemyPKModel
-from src.core.db.sessions import SQLAlchemySession
-from src.core.schemas import (
-    CursorSortingSearch,
-    OffsetSortingSearch,
-    Schema,
+from src.core.infrastructure.db_models import SQLAlchemyModel, SQLAlchemyPKModel
+from src.core.infrastructure.db_sessions import Session
+from src.core.validators import (
+    CursorSortedPagination,
+    OffsetSortedPagination,
+    CoreValidator,
 )
 
 
-class ExtendedPydanticFactory[Model: Schema](ModelFactory[Model]):
+class ExtendedPydanticFactory[Model: CoreValidator](ModelFactory[Model]):
     __is_base_factory__ = True
     __check_model__ = True
     __set_as_default_factory_for_type__ = True
@@ -24,11 +24,15 @@ class ExtendedPydanticFactory[Model: Schema](ModelFactory[Model]):
     __max_collection_length__ = 10
 
 
-class OffsetSortingSearchFactory(ExtendedPydanticFactory[OffsetSortingSearch]):
+class OffsetSortingSearchFactory(
+    ExtendedPydanticFactory[OffsetSortedPagination]
+):
     pass
 
 
-class CursorSortingSearchFactory(ExtendedPydanticFactory[CursorSortingSearch]):
+class CursorSortingSearchFactory(
+    ExtendedPydanticFactory[CursorSortedPagination]
+):
     pass
 
 
@@ -36,7 +40,7 @@ class CursorSortingSearchFactory(ExtendedPydanticFactory[CursorSortingSearch]):
 class SQLAlchemyPersistence[Model: SQLAlchemyPKModel](
     AsyncPersistenceProtocol[Model]
 ):
-    _session: SQLAlchemySession
+    _session: Session
 
     @override
     async def save(self, data: Model) -> Model:

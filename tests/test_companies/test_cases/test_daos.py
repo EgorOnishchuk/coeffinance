@@ -6,19 +6,18 @@ import pytest_asyncio
 from dishka import AsyncContainer
 from pydantic_extra_types.country import CountryShortName
 
-from src.companies.db.daos import SQLAlchemyCompanyDAO
 from src.companies.schemas import (
-    CompanyCreate,
-    CompanyRead,
-    CompanySearch,
-    UserCompaniesSearch,
+    CompanyLegals,
+    Company,
+    CompanyIdentity,
+    UserCompaniesPagination,
 )
-from src.core.db.sessions import SQLAlchemySession
-from src.core.deps.paginators import FastAPIPaginationProvider
-from src.core.schemas import (
-    BaseCursorPage,
-    BaseOffsetPage,
-    CursorSortingSearch,
+from src.core.deps.paginators import SQLAlchemyFastAPIPaginatorProvider
+from src.core.infrastructure.db_sessions import Session
+from src.core.validators import (
+    CursorPage,
+    OffsetPage,
+    CursorSortedPagination,
     OrderBy,
 )
 from tests.factories import CursorSortingSearchFactory
@@ -32,7 +31,9 @@ from tests.test_users.factories import SQLAlchemyUserFactory
 
 
 @pytest.mark.parametrize(
-    "overridden_container", [(FastAPIPaginationProvider(),)], indirect=True
+    "overridden_container",
+    [(SQLAlchemyFastAPIPaginatorProvider(),)],
+    indirect=True,
 )
 @pytest.mark.parametrize(
     "sqlalchemy_factories",
@@ -44,7 +45,7 @@ class TestSQLAlchemyCompanyDAO:
     @pytest_asyncio.fixture(autouse=True)
     async def _setup(
         self,
-        sqlalchemy_session: SQLAlchemySession,
+        sqlalchemy_session: Session,
         overridden_container: AsyncContainer,
         sqlalchemy_factories: tuple[
             type[SQLAlchemyCompanyFactory], type[SQLAlchemyUserFactory]
@@ -62,12 +63,12 @@ class TestSQLAlchemyCompanyDAO:
 
     @pytest.mark.asyncio
     async def test_read_one(self) -> None:
-        expected = CompanyRead.model_validate(
+        expected = Company.model_validate(
             await self._company_factory.create_async()
         )
         actual = await self._dao.read_one(
             session=self._session,
-            company=CompanySearch(
+            company=CompanyIdentity(
                 brn=expected.brn, country=CountryShortName(expected.country)
             ),
         )
@@ -90,7 +91,7 @@ class TestSQLAlchemyCompanyDAO:
         self,
     ) -> None:
         expected = CompanyCreateFactory.build()
-        actual = CompanyCreate.model_validate(
+        actual = CompanyLegals.model_validate(
             await self._dao.write_one(
                 session=self._session,
                 company=expected,
@@ -102,7 +103,7 @@ class TestSQLAlchemyCompanyDAO:
 
     @pytest.mark.asyncio
     async def test_write_existing(self) -> None:
-        existing = CompanyCreate.model_validate(
+        existing = CompanyLegals.model_validate(
             await self._company_factory.create_async()
         )
         actual = await self._dao.write_one(
@@ -118,10 +119,10 @@ class TestSQLAlchemyCompanyDAO:
     ) -> None:
         user = await self._user_factory.create_async()
         size = 3
-        expected = BaseOffsetPage[CompanyRead](
+        expected = OffsetPage[Company](
             items=sorted(  # pyright: ignore[reportCallIssue] # Score is guaranteed not to be None, as it is defined at the factory.
                 map(
-                    CompanyRead.model_validate,
+                    Company.model_validate,
                     await self._company_factory.create_batch_async(
                         size, users=[user]
                     ),
@@ -137,7 +138,7 @@ class TestSQLAlchemyCompanyDAO:
 
         actual = await self._dao.read_by_user(
             session=self._session,
-            clauses=UserCompaniesSearch(
+            clauses=UserCompaniesPagination(
                 user_nickname=user.nickname,
                 order_by=OrderBy.DESC,
                 page=1,
@@ -152,7 +153,7 @@ class TestSQLAlchemyCompanyDAO:
     ) -> None:
         await self._company_factory.create_async(users=[])
         search = UserCompaniesSearchFactory.build()
-        expected = BaseOffsetPage[CompanyRead](
+        expected = OffsetPage[Company](
             items=[], total=0, page=1, size=search.size, pages=0
         )
 
@@ -165,10 +166,10 @@ class TestSQLAlchemyCompanyDAO:
     @pytest.mark.asyncio
     async def test_read_all(self) -> None:
         size = 3
-        expected = BaseCursorPage[CompanyRead](
+        expected = CursorPage[Company](
             items=sorted(
                 map(
-                    CompanyRead.model_validate,
+                    Company.model_validate,
                     await self._company_factory.create_batch_async(size),
                 ),
                 key=lambda company: company.created_at,
@@ -182,7 +183,7 @@ class TestSQLAlchemyCompanyDAO:
 
         actual = await self._dao.read_all(
             session=self._session,
-            clauses=CursorSortingSearch(
+            clauses=CursorSortedPagination(
                 order_by=OrderBy.DESC,
                 next_page=None,
                 size=size,
@@ -194,7 +195,7 @@ class TestSQLAlchemyCompanyDAO:
     async def test_read_all_empty(
         self,
     ) -> None:
-        expected = BaseCursorPage[CompanyRead](
+        expected = CursorPage[Company](
             items=[],
             total=0,
             current_page="Pg%3D%3D",

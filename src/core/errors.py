@@ -1,318 +1,211 @@
-from abc import ABC
-from collections.abc import Awaitable, Callable
+from __future__ import annotations
+
+import sys
+from collections.abc import (
+    Awaitable,
+    Callable,
+    Mapping,
+)
 from functools import wraps
-from typing import Final, TypeVar
+from logging import CRITICAL, DEBUG, ERROR
+from types import TracebackType
+from typing import ClassVar, Final
 
-from fastapi import Response, status
-from fastapi.exceptions import HTTPException, RequestValidationError
+from fastapi import Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette import status
+from starlette.status import (
+    HTTP_404_NOT_FOUND,
+    HTTP_409_CONFLICT,
+    HTTP_422_UNPROCESSABLE_ENTITY,
+    HTTP_500_INTERNAL_SERVER_ERROR,
+)
 
-from src.core.asgi import ExtendedRequest, HandlingPair
-from src.core.schemas import JSON, PublicError
-from src.core.utils.loggers import Logger
+from src.core.asgi import HTTPStatus
+from src.core.infrastructure.api_sessions import JSON
+from src.core.utils.logging import Level, logger
+from src.core.validators import PublicError
 
 
-class NonDetailedError(Exception, ABC):
-    def __init__(self, msg: str) -> None:
-        super().__init__(msg)
-        self.msg: Final = msg
+def core_exc_handlers() -> dict[
+    type[Exception] | HTTPStatus,
+    Callable[[Exception], Awaitable[Response]],
+]:
+    internal_error_handler = nondetailed_handler(
+        HTTP_500_INTERNAL_SERVER_ERROR,
+    )
+    resource_not_found_handler = nondetailed_handler(
+        HTTP_404_NOT_FOUND,
+    )
+    obj_not_found_handler = detailed_handler(
+        HTTP_404_NOT_FOUND,
+    )
+    already_exists_handler = nondetailed_handler(
+        HTTP_409_CONFLICT,
+    )
+
+    sys_handlers = {
+        DBConnError: internal_error_handler,
+        DBResponseError: internal_error_handler,
+        ExternalAPIConnError: internal_error_handler,
+        ExternalAPIResponseError: internal_error_handler,
+        MailConnError: internal_error_handler,
+        MailResponseError: internal_error_handler,
+        # Responses below do not require a body (see the examples about 401 and
+        # 403 above), but without overriding FastAPI will still add JSON
+        # with «detail» to them.
+        HTTP_404_NOT_FOUND: resource_not_found_handler,
+        Exception: internal_error_handler,
+    }
+    business_handlers = {
+        NotFoundError: obj_not_found_handler,
+        AlreadyExistsError: already_exists_handler,
+    }
+
+    return {**sys_handlers, **business_handlers}
+
+
+def nondetailed_handler(
+    code: HTTPStatus,
+) -> Callable[[CoreError], Awaitable[Response]]:
+    """
+    When the meaning of a business error is clear at the protocol level
+    (401 Unauthorized, 403 Forbidden, etc.) or an error is systemic and
+    therefore should not be exposed (500 Internal Server Error, etc.).
+    """
+
+    async def handler(
+        exc: CoreError,
+    ) -> Response:
+        return Response(status_code=code)
+
+    return handler
+
+
+def detailed_handler(
+    code: HTTPStatus,
+) -> Callable[[BusinessError], Awaitable[JSONResponse]]:
+    """
+    When the meaning of a business error is unclear at the protocol level and
+    additional context needs to be provided (400 Bad Request, 422 Unprocessable
+    Entity, etc.).
+    """
+
+    async def handler(
+        exc: BusinessError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            content=PublicError(type=exc.type, details=exc.details).model_dump(
+                mode="json",
+                exclude_none=True,
+            ),
+            status_code=code,
+        )
+
+    return handler
+
+
+async def validation_handler(
+    exc: RequestValidationError,
+) -> JSONResponse:
+    details = {error['msg']: '.'.join(error['loc']) for error in exc.errors()}
+
+    return JSONResponse(
+        content=PublicError(type=type(exc).__name__, details=details).model_dump(
+            mode="json",
+            exclude_none=True,
+        ),
+        status_code=status.,
+    )
+
+
+def serialize[**P](
+    func: Callable[P, Awaitable[tuple[PublicError, HTTPStatus]]],
+) -> Callable[P, Awaitable[JSONResponse]]:
+    @wraps(func)
+    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> JSONResponse:
+        error, code = await func(*args, **kwargs)
+
+
+    return wrapper
+
+
+class CoreError(Exception):
+    default_log_level: ClassVar[Level] = DEBUG
+
+    def __init__(
+        self,
+        *args,
+        log_level: Level | None = None,
+        details: Mapping[str, JSON] | None = None,
+    ) -> None:
+        super().__init__(*args)
+
+        self.log_level: Final = (
+            log_level if log_level is not None else self.default_log_level
+        )
+        self.details: Final = details if details is not None else {}
+
+    @property
+    def type(self) -> str:
+        return type(self).__name__
 
     @property
     def original(self) -> BaseException | None:
         return self.__cause__ or self.__context__
 
 
-class DetailedError(NonDetailedError, ABC):
-    """
-    Allows the user to find and possibly even fix the error themselves. If this
-    is not possible, it clearly indicates the malfunctioning feature so that
-    the user can continue to use the rest of the app's features.
-    """
-
-    def __init__(
-        self, sys_msg: str, *, user_msg: str, ways_to_solve: tuple[str, ...]
-    ) -> None:
-        super().__init__(sys_msg)
-        self.user_msg: Final = user_msg
-        self.ways_to_solve: Final = ways_to_solve
+class SysError(CoreError):
+    default_log_level = ERROR
 
 
-# Pure system exceptions.
+class DBConnError(SysError, ConnectionError):
+    default_log_level = CRITICAL
 
 
-class OpenAPIError(NonDetailedError):
-    def __init__(self, key: str) -> None:
-        super().__init__(f"{key} object is not in the Schema.")
-        self.key: Final = key
+class DBResponseError(SysError):
+    default_log_level = CRITICAL
 
 
-class DBConnError(NonDetailedError, ConnectionError):
-    def __init__(
-        self,
-        *,
-        code: str | None = None,
-    ) -> None:
-        super().__init__(
-            f"DB is unavailable{f': {code}' if code is not None else ''}."
-        )
-        self.code: Final = code
+class ExternalAPIConnError(SysError, ConnectionError):
+    pass
 
 
-class ExternalAPIConnError(DetailedError, ConnectionError):
-    def __init__(
-        self,
-        sys_msg: str,
-        *,
-        user_msg: str = "External service is unavailable.",
-        ways_to_solve: tuple[str, ...] = (
-            "Try later.",
-            "Contact with Support or the data provider.",
-        ),
-    ) -> None:
-        super().__init__(
-            sys_msg, user_msg=user_msg, ways_to_solve=ways_to_solve
-        )
+class ExternalAPIResponseError(SysError):
+    pass
 
 
-class EmailConnError(DetailedError, ConnectionError):
-    def __init__(
-        self,
-        sys_msg: str,
-        *,
-        user_msg: str = "Email service is unavailable.",
-        ways_to_solve: tuple[str, ...] = (
-            "Try later.",
-            "Contact with Support or the mail server provider.",
-        ),
-    ) -> None:
-        super().__init__(
-            sys_msg, user_msg=user_msg, ways_to_solve=ways_to_solve
-        )
+class MailConnError(SysError, ConnectionError):
+    pass
 
 
-# Business exceptions. However, they can act as system exceptions when the
-# request is guaranteed to be valid, and at the same time the contract does not
-# anticipate a business error, but it nevertheless appears.
+class MailResponseError(SysError):
+    pass
 
 
-class DBResponseError(NonDetailedError):
-    def __init__(self, *, code: str | None = None) -> None:
-        super().__init__(
-            f"DB failed to execute the request"
-            f"{f': {code}' if code is not None else ''}."
-        )
-        self.code: Final = code
+class BusinessError(CoreError):
+    pass
 
 
-class ExternalAPIResponseError(DetailedError, ABC):
-    def __init__(
-        self,
-        sys_msg: str,
-        *,
-        code: int | str | None = None,
-        user_msg: str = "External service is unavailable.",
-        ways_to_solve: tuple[str, ...] = (
-            "Try later.",
-            "Contact with the data provider.",
-        ),
-    ) -> None:
-        super().__init__(
-            f"The response was unsuccessful: {sys_msg} ({code}).",
-            user_msg=user_msg,
-            ways_to_solve=ways_to_solve,
-        )
-        self.code: Final = code
+class NotFoundError(BusinessError):
+    pass
 
 
-class ExternalRESTResponseError(ExternalAPIResponseError):
-    def __init__(
-        self,
-        json: JSON | None = None,
-        *,
-        code: int,
-        user_msg: str = "External service is unavailable.",
-        ways_to_solve: tuple[str, ...] = (
-            "Try later.",
-            "Contact with the data provider.",
-        ),
-    ) -> None:
-        super().__init__(
-            f"The response was unsuccessful: {json} ({code}).",
-            user_msg=user_msg,
-            ways_to_solve=ways_to_solve,
-            code=self.code,
-        )
-        self.json: Final = json
+class AlreadyExistsError(BusinessError):
+    pass
 
 
-class EmailResponseError(DetailedError):
-    def __init__(
-        self,
-        sys_msg: str,
-        *,
-        code: str | int | None = None,
-        user_msg: str = "Email service is unavailable.",
-        ways_to_solve: tuple[str, ...] = (
-            "Check that the email is valid and is not compromised, blocked or "
-            "deleted.",
-            "Try later.",
-            "Contact with Support or the mail server provider.",
-        ),
-    ) -> None:
-        super().__init__(
-            f"The response was unsuccessful: {sys_msg} ({code}).",
-            user_msg=user_msg,
-            ways_to_solve=ways_to_solve,
-        )
-        self.code: Final = code
+def sys_handler(
+    type_: type[BaseException],
+    value: BaseException,
+    traceback: TracebackType,
+) -> None:
+    if isinstance(value, KeyboardInterrupt):
+        sys.__excepthook__(type_, value, traceback)
+        return
 
+    if isinstance(value, CoreError):
+        logger().log(level=value.log_level, event=value.type, **value.details)
 
-def serialize[**P](
-    func: Callable[P, Awaitable[tuple[PublicError, int]]],
-) -> Callable[P, Awaitable[JSONResponse]]:
-    @wraps(func)
-    async def wrapper(*args: P.args, **kwargs: P.kwargs) -> JSONResponse:
-        error, code = await func(*args, **kwargs)
-        return JSONResponse(
-            content=error.model_dump(mode="json"), status_code=code
-        )
-
-    return wrapper
-
-
-# These handlers provide an additional context to responses that do not allow
-# for a clear determination of an error at the protocol level. For example,
-# HTTP 404 Not Found does not require a response body, as the meaning of the
-# error is clear from its code, while 422 Unprocessable Entity does require
-# one.
-
-
-@serialize
-async def validation_handler(
-    request: ExtendedRequest,
-    exc: RequestValidationError,
-) -> tuple[PublicError, int]:
-    (await request.state.dishka_container.get(Logger)).debug(exc)
-
-    return PublicError(
-        reason="Invalid input.",
-        ways_to_solve=tuple(
-            f"{error['msg']}: {'.'.join(map(str, error['loc']))}"
-            for error in exc.errors()
-        ),
-    ), status.HTTP_422_UNPROCESSABLE_ENTITY
-
-
-async def db_conn_handler(
-    request: ExtendedRequest, exc: DBConnError
-) -> Response:
-    """
-    Since the DB is an internal and especially sensitive module, the fact that
-    it has failed should not be disclosed to the user in order to prevent
-    targeted attacks.
-    """
-    (await request.state.dishka_container.get(Logger)).critical(exc)
-
-    return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-@serialize
-async def email_conn_handler(
-    request: ExtendedRequest, exc: EmailConnError
-) -> tuple[PublicError, int]:
-    (await request.state.dishka_container.get(Logger)).critical(exc)
-
-    return PublicError(
-        reason=exc.user_msg, ways_to_solve=exc.ways_to_solve
-    ), status.HTTP_503_SERVICE_UNAVAILABLE
-
-
-@serialize
-async def external_api_conn_handler(
-    request: ExtendedRequest, exc: ExternalAPIConnError
-) -> tuple[PublicError, int]:
-    (await request.state.dishka_container.get(Logger)).exception(exc)
-
-    return PublicError(
-        reason=exc.user_msg, ways_to_solve=exc.ways_to_solve
-    ), status.HTTP_503_SERVICE_UNAVAILABLE
-
-
-# If these exceptions were not intercepted in the business layer, then they are
-# systemic and are handled accordingly.
-
-
-async def db_response_handler(
-    request: ExtendedRequest, exc: DBResponseError
-) -> Response:
-    """
-    Since the DB is an internal and especially sensitive module, the fact that
-    it has failed should not be disclosed to the user in order to prevent
-    targeted attacks.
-    """
-    (await request.state.dishka_container.get(Logger)).exception(exc)
-
-    return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-@serialize
-async def external_api_response_handler(
-    request: ExtendedRequest, exc: ExternalRESTResponseError
-) -> tuple[PublicError, int]:
-    (await request.state.dishka_container.get(Logger)).exception(exc)
-
-    return PublicError(
-        reason=exc.user_msg, ways_to_solve=exc.ways_to_solve
-    ), status.HTTP_503_SERVICE_UNAVAILABLE
-
-
-# These exceptions do not require a body (see the example about HTTP 404 and
-# 422 above), but without overriding FastAPI will still add JSON with «detail»
-# to them.
-
-
-async def not_found_handler(
-    request: ExtendedRequest, exc: HTTPException
-) -> Response:
-    (await request.state.dishka_container.get(Logger)).debug(exc)
-
-    return Response(status_code=status.HTTP_404_NOT_FOUND)
-
-
-async def unexpected_exception_handler(
-    request: ExtendedRequest,
-    exc: Exception,
-) -> Response:
-    (await request.state.dishka_container.get(Logger)).critical(exc)
-
-    return Response(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-ExcT_co = TypeVar("ExcT_co", bound=Exception, covariant=True)
-
-
-def get_handling_map() -> tuple[HandlingPair[Exception], ...]:
-    return (
-        HandlingPair[DBConnError](exc=DBConnError, handler=db_conn_handler),
-        HandlingPair[DBResponseError](
-            exc=DBResponseError, handler=db_response_handler
-        ),
-        HandlingPair[EmailConnError](
-            exc=EmailConnError, handler=email_conn_handler
-        ),
-        HandlingPair[ExternalAPIConnError](
-            exc=ExternalAPIConnError, handler=external_api_conn_handler
-        ),
-        HandlingPair[ExternalRESTResponseError](
-            exc=ExternalRESTResponseError,
-            handler=external_api_response_handler,
-        ),
-        HandlingPair[RequestValidationError](
-            exc=RequestValidationError,
-            handler=validation_handler,
-        ),
-        HandlingPair[HTTPException](exc=404, handler=not_found_handler),
-        HandlingPair[Exception](
-            exc=Exception, handler=unexpected_exception_handler
-        ),
-    )
+    logger().critical(type_.__name__, exc_info=(type_, value, traceback))

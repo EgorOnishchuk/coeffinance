@@ -1,35 +1,48 @@
 # pyright: reportImportCycles=false
 
-import logging
 
-from dishka import Provider, Scope, provide
+from dishka import (
+    AsyncContainer,
+    Provider,
+    Scope,
+    make_async_container,
+)
 from dishka.integrations.fastapi import FastapiProvider
 
-from src.core.utils.loggers import UVICORN_LOGGER, Logger
+from src.companies.deps import get_company_deps
+from src.users.deps import get_user_deps
 
 
-class BaseProvider(Provider):
+class CoreProvider(Provider):
     scope = Scope.APP
 
 
-class UvicornLoggerProvider(BaseProvider):
-    @provide(provides=Logger)
-    def get_logger(self) -> logging.Logger:
-        return logging.getLogger(UVICORN_LOGGER)
-
-
-def get_deps() -> tuple[Provider, ...]:
-    from src.core.deps.db import RedisProvider, SQLAlchemyProvider
-    from src.core.deps.external_api import HTTPXProvider
-    from src.core.deps.mail import AIOSMTPLibProvider
-    from src.core.deps.paginators import FastAPIPaginationProvider
+def get_core_deps() -> tuple[Provider, ...]:
+    from src.core.deps.api_sessions import HTTPXProvider
+    from src.core.deps.db_sessions import (
+        RedisProvider,
+        SQLAlchemyProvider,
+    )
+    from src.core.deps.mail_sessions import AIOSMTPLibProvider
+    from src.core.deps.paginators import SQLAlchemyFastAPIPaginatorProvider
 
     return (
         FastapiProvider(),
-        UvicornLoggerProvider(),
         SQLAlchemyProvider(),
-        FastAPIPaginationProvider(),
+        SQLAlchemyFastAPIPaginatorProvider(),
         RedisProvider(),
         AIOSMTPLibProvider(),
         HTTPXProvider(),
     )
+
+
+def get_prod_deps() -> tuple[Provider, ...]:
+    return (
+        *get_core_deps(),
+        *get_user_deps(),
+        *get_company_deps(),
+    )
+
+
+def core_container() -> AsyncContainer:
+    return make_async_container(*get_prod_deps())

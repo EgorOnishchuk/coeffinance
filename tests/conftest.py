@@ -25,34 +25,24 @@ from testcontainers.postgres import (  # pyright: ignore[reportMissingTypeStubs]
     PostgresContainer,
 )
 
-from src.companies.routes import get_company_router
-from src.core.asgi import ExtendedFastAPI
-from src.core.db.models import SQLAlchemyPKModel
-from src.core.db.sessions import SQLAlchemySession
-from src.core.errors import get_handling_map
-from src.core.middlewares import get_middleware_map
+from src.companies.routers import company_router
+from src.core.asgi import FastAPIExtended
+from src.core.errors import core_exc_handlers
+from src.core.infrastructure.db_models import SQLAlchemyPKModel
+from src.core.infrastructure.db_sessions import Session
+from src.core.middlewares import core_middleware
 from src.core.settings import DocsSettings, ExternalAPISettings
-from src.core.utils.paginators import FastAPIPagination
-from src.main import get_prod_deps
-from src.users.db.models import SQLAlchemyUser
+from src.core.utils.pagination import Paginator
 from src.users.deps import get_authenticated
 from src.users.errors import get_user_handling_map
-from src.users.routes import get_user_router
-from tests.deps import SQLAlchemyTestProvider
+from src.users.infrastructure.db_models import SQLAlchemyUser
+from src.users.routes import user_router
+from tests.deps import get_test_deps
 from tests.factories import (
     ExtendedSQLAlchemyFactory,
     SQLAlchemyPersistence,
 )
-from tests.test_companies.deps import CompanyServiceMockProvider
 from tests.test_users.factories import SQLAlchemyUserFactory
-
-
-def get_test_deps() -> tuple[Provider, ...]:
-    return (
-        *get_prod_deps(),
-        SQLAlchemyTestProvider(),
-        CompanyServiceMockProvider(),
-    )
 
 
 @pytest_asyncio.fixture
@@ -87,15 +77,15 @@ def overridden_container(
 
 
 @pytest.fixture
-def app(container: AsyncContainer) -> ExtendedFastAPI:
-    return ExtendedFastAPI(
+def app(container: AsyncContainer) -> FastAPIExtended:
+    return FastAPIExtended(
         routers=(
-            get_user_router(),
-            get_company_router(),
+            user_router(),
+            company_router(),
         ),
-        middleware_map=(*get_middleware_map(),),
+        middleware_map=(*core_middleware(),),
         handling_map=(
-            *get_handling_map(),
+            *core_exc_handlers(),
             *get_user_handling_map(),
         ),
         container=container,
@@ -106,7 +96,7 @@ def app(container: AsyncContainer) -> ExtendedFastAPI:
 
 
 @pytest_asyncio.fixture
-async def app_in_lifespan(app: ExtendedFastAPI) -> AsyncGenerator[ASGIApp]:
+async def app_in_lifespan(app: FastAPIExtended) -> AsyncGenerator[ASGIApp]:
     async with LifespanManager(app=app) as manager:
         yield manager.app
 
@@ -147,23 +137,21 @@ def postgresql() -> Generator[None]:
 @pytest_asyncio.fixture
 async def sqlalchemy_session(
     container: AsyncContainer,
-) -> AsyncGenerator[SQLAlchemySession]:
+) -> AsyncGenerator[Session]:
     async with container() as sub_container:
-        yield await sub_container.get(SQLAlchemySession)
+        yield await sub_container.get(Session)
 
 
 @pytest_asyncio.fixture
 async def fastapi_pagination(
     container: AsyncContainer,
-) -> FastAPIPagination[SQLAlchemySession, Select[Any]]:
-    return await container.get(
-        FastAPIPagination[SQLAlchemySession, Select[Any]]
-    )
+) -> Paginator[Session, Select[Any]]:
+    return await container.get(Paginator[Session, Select[Any]])
 
 
 @pytest.fixture
 def sqlalchemy_persistence(
-    sqlalchemy_session: SQLAlchemySession,
+    sqlalchemy_session: Session,
 ) -> SQLAlchemyPersistence[SQLAlchemyPKModel]:
     return SQLAlchemyPersistence[SQLAlchemyPKModel](_session=sqlalchemy_session)
 
@@ -188,7 +176,7 @@ def sqlalchemy_factories(
 
 @pytest_asyncio.fixture
 async def current_sqlalchemy_user_mock(
-    app: ExtendedFastAPI,
+    app: FastAPIExtended,
 ) -> AsyncGenerator[SQLAlchemyUser]:
     user = SQLAlchemyUserFactory.build(is_active=True, is_verified=True)
 

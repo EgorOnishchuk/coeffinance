@@ -5,19 +5,19 @@ from typing import Any
 from polyfactory import BaseFactory
 from pydantic_extra_types.country import CountryShortName
 
-from src.analytics.db.models import SQLAlchemyAnalytics
-from src.companies.db.models import SQLAlchemyCompany
+from src.companies.infrastructure.db_models import SQLAlchemyCompany
 from src.companies.schemas import (
-    CompanyCreate,
-    CompanyRead,
-    CompanySearch,
-    Countries,
-    UserCompaniesSearch,
+    CompanyLegals,
+    Company,
+    Country,
+    CompanyIdentity,
+    UserCompaniesPagination,
 )
-from src.core.schemas import BaseCursorPage, BaseOffsetPage
-from src.users.db.models import SQLAlchemyUser
+from src.core.validators import CursorPage, OffsetPage
+from src.reports.infrastructure.db_models import SQLAlchemyReport
+from src.users.infrastructure.db_models import SQLAlchemyUser
 from tests.factories import ExtendedPydanticFactory, ExtendedSQLAlchemyFactory
-from tests.test_analytics.factories import SQLAlchemyAnalyticsFactory
+from tests.test_reports.factories import SQLAlchemyReportFactory
 from tests.test_users.factories import SQLAlchemyUserFactory
 
 
@@ -30,10 +30,10 @@ def get_brn(cls: type[BaseFactory[Any]]) -> str:
 
 
 def get_country(cls: type[BaseFactory[Any]]) -> CountryShortName:
-    return CountryShortName(str(cls.__random__.choice(tuple(Countries))))
+    return CountryShortName(str(cls.__random__.choice(tuple(Country))))
 
 
-class CompanySearchFactory(ExtendedPydanticFactory[CompanySearch]):
+class CompanySearchFactory(ExtendedPydanticFactory[CompanyIdentity]):
     @classmethod
     def brn(cls) -> str:
         return get_brn(cls)
@@ -43,7 +43,7 @@ class CompanySearchFactory(ExtendedPydanticFactory[CompanySearch]):
         return get_country(cls)
 
 
-class CompanyCreateFactory(ExtendedPydanticFactory[CompanyCreate]):
+class CompanyCreateFactory(ExtendedPydanticFactory[CompanyLegals]):
     @classmethod
     def name(cls) -> str:
         return get_name(cls)
@@ -57,24 +57,26 @@ class CompanyCreateFactory(ExtendedPydanticFactory[CompanyCreate]):
         return get_country(cls)
 
 
-class UserCompaniesSearchFactory(ExtendedPydanticFactory[UserCompaniesSearch]):
+class UserCompaniesSearchFactory(
+    ExtendedPydanticFactory[UserCompaniesPagination]
+):
     __use_defaults__ = True
 
 
-class CompanyReadFactory(ExtendedPydanticFactory[CompanyRead]):
+class CompanyReadFactory(ExtendedPydanticFactory[Company]):
     @classmethod
     def country(cls) -> CountryShortName:
         return get_country(cls)
 
 
 class CompanyBaseOffsetPageFactory(
-    ExtendedPydanticFactory[BaseOffsetPage[CompanyRead]]
+    ExtendedPydanticFactory[OffsetPage[Company]]
 ):
     pass
 
 
 class CompanyBaseCursorPageFactory(
-    ExtendedPydanticFactory[BaseCursorPage[CompanyRead]]
+    ExtendedPydanticFactory[CursorPage[Company]]
 ):
     pass
 
@@ -97,5 +99,5 @@ class SQLAlchemyCompanyFactory(ExtendedSQLAlchemyFactory[SQLAlchemyCompany]):
         return cls._batch(SQLAlchemyUserFactory, min_=1, max_=10)
 
     @classmethod
-    def analytics(cls) -> list[SQLAlchemyAnalytics]:
-        return cls._batch(SQLAlchemyAnalyticsFactory, min_=1, max_=3)
+    def reports(cls) -> list[SQLAlchemyReport]:
+        return cls._batch(SQLAlchemyReportFactory, min_=1, max_=3)

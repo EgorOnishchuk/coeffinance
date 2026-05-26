@@ -7,11 +7,11 @@ import pytest
 import pytest_asyncio
 from httpx import AsyncClient
 
-from src.companies.schemas import UserCompaniesSearch
-from src.companies.service import CompanyService
-from src.core.asgi import Architecture
+from src.companies.schemas import UserCompaniesPagination
+from src.companies.services import CompanyNationalService
+from src.core.asgi import APIArchitecture
 from src.core.settings import DocsSettings
-from src.users.db.models import SQLAlchemyUser
+from src.users.infrastructure.db_models import SQLAlchemyUser
 from tests.factories import (
     CursorSortingSearchFactory,
     OffsetSortingSearchFactory,
@@ -20,7 +20,7 @@ from tests.factories import (
 
 class TestCompanyRouter:
     ROOT = (
-        f"/{Architecture.JSON_API}/"
+        f"/{APIArchitecture.REST}/"
         f"{DocsSettings.load().version.major}/companies"
     )
 
@@ -28,7 +28,7 @@ class TestCompanyRouter:
     async def _setup(
         self,
         client: AsyncClient,
-        company_service: CompanyService,
+        company_service: CompanyNationalService,
         current_sqlalchemy_user_mock: SQLAlchemyUser,
     ) -> None:
         self._client = client
@@ -44,7 +44,7 @@ class TestCompanyRouter:
         )
 
         self._expected.get_by_user.assert_awaited_once_with(
-            clauses=UserCompaniesSearch(
+            clauses=UserCompaniesPagination(
                 user_nickname=self._user.nickname,
                 **search,
             )

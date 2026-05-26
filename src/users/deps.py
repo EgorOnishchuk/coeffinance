@@ -1,5 +1,6 @@
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, cast
 
 from dishka import Provider, provide
 from fastapi import Depends
@@ -10,31 +11,32 @@ from fastapi_users.authentication import (
     RedisStrategy,
 )
 from fastapi_users_db_sqlalchemy import SQLAlchemyUserDatabase
+from structlog.contextvars import bound_contextvars
 
-from src.core.asgi import Architecture, ExtendedRequest
-from src.core.db.sessions import SQLAlchemySession
-from src.core.deps.base import BaseProvider
-from src.core.deps.db import Redis_
-from src.core.settings import AuthSettings
-from src.users.db.models import DBUserProtocol, SQLAlchemyUser
-from src.users.service import UserManager
+from src.core.asgi import APIArchitecture, TypedRequest
+from src.core.deps.base import CoreProvider
+from src.core.deps.db_sessions import Redis_
+from src.core.infrastructure.db_sessions import Session
+from src.core.settings import VerificationSettings
+from src.users.infrastructure.db_models import DBUserProtocol, SQLAlchemyUser
+from src.users.services import UserManager
 from src.users.utils.password_validators import (
     PasswordValidator,
     ZXCVBNValidator,
 )
 
 
-class ZXCVBNProvider(BaseProvider):
+class ZXCVBNProvider(CoreProvider):
     validator = provide(
         source=ZXCVBNValidator,
         provides=PasswordValidator,
     )
 
 
-class AuthProvider(BaseProvider):
+class AuthProvider(CoreProvider):
     @provide
-    def get_settings(self) -> AuthSettings:
-        return AuthSettings.load()
+    def get_settings(self) -> VerificationSettings:
+        return VerificationSettings.load()
 
 
 @lru_cache
@@ -47,11 +49,11 @@ def get_fastapi_users() -> FastAPIUsers[DBUserProtocol, int]:
     """
 
     bearer = BearerTransport(
-        tokenUrl=f"{Architecture.JSON_API}/{{version}}/users/auth/universal/login"
+        tokenUrl=f"{APIArchitecture.REST}/{{version}}/users/auth/universal/login"
     )
 
     async def get_redis_strategy(
-        request: ExtendedRequest,
+        request: TypedRequest,
     ) -> RedisStrategy[DBUserProtocol, int]:
         redis_ = await request.state.dishka_container.get(Redis_)
 
@@ -67,9 +69,9 @@ def get_fastapi_users() -> FastAPIUsers[DBUserProtocol, int]:
     )
 
     async def get_sqlalchemy_db(
-        request: ExtendedRequest,
+        request: TypedRequest,
     ) -> SQLAlchemyUserDatabase[DBUserProtocol, int]:
-        session = await request.state.dishka_container.get(SQLAlchemySession)
+        session = await request.state.dishka_container.get(Session)
 
         return SQLAlchemyUserDatabase[DBUserProtocol, int](
             session=session,
@@ -77,7 +79,7 @@ def get_fastapi_users() -> FastAPIUsers[DBUserProtocol, int]:
         )
 
     async def get_user_manager(
-        request: ExtendedRequest,
+        request: TypedRequest,
         db: Annotated[
             SQLAlchemyUserDatabase[DBUserProtocol, int],
             Depends(get_sqlalchemy_db),
@@ -87,7 +89,7 @@ def get_fastapi_users() -> FastAPIUsers[DBUserProtocol, int]:
 
         return UserManager(
             user_db=db,
-            settings=await container.get(AuthSettings),
+            settings=await container.get(VerificationSettings),
             password_validator=await container.get(PasswordValidator),
         )
 
@@ -97,9 +99,16 @@ def get_fastapi_users() -> FastAPIUsers[DBUserProtocol, int]:
     )
 
 
-async def get_authenticated() -> DBUserProtocol:
-    dep = get_fastapi_users().current_user(active=True, verified=True)
-    return await dep()  # type: ignore[no-any-return] # pyright: ignore[reportReturnType]
+async def get_authenticated() -> AsyncGenerator[DBUserProtocol]:
+    # If optional=False (default) result cannot be None.
+    dep = cast(
+        Callable[..., Awaitable[DBUserProtocol]],
+        get_fastapi_users().current_user(active=True, verified=True),
+    )
+    user = await dep()
+
+    with bound_contextvars(nickname=user.nickname):
+        yield user
 
 
 def get_user_deps() -> tuple[Provider, ...]:

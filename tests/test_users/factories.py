@@ -1,10 +1,10 @@
-from src.companies.db.models import SQLAlchemyCompany
-from src.users.db.models import SQLAlchemyUser
-from src.users.schemas import UserRead
+from src.companies.infrastructure.db_models import SQLAlchemyCompany
+from src.users.infrastructure.db_models import SQLAlchemyUser
+from src.users.schemas import User
 from tests.factories import ExtendedPydanticFactory, ExtendedSQLAlchemyFactory
 
 
-class UserReadFactory(ExtendedPydanticFactory[UserRead]):
+class UserReadFactory(ExtendedPydanticFactory[User]):
     """
     Temporary solution until EmailStr support is added:
     https://github.com/litestar-org/polyfactory/issues/642.

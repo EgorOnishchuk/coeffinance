@@ -6,20 +6,22 @@ from unittest.mock import create_autospec
 
 from dishka import provide
 
-from src.companies.service import CompanyService
-from src.core.deps.base import BaseProvider
+from src.companies.services import CompanyNationalService
+from src.core.deps.base import CoreProvider
 from tests.test_companies.factories import (
     CompanyBaseCursorPageFactory,
     CompanyBaseOffsetPageFactory,
 )
 
 
-class CompanyServiceMockProvider(BaseProvider):
+class CompanyServiceMockProvider(CoreProvider):
     @provide(override=True)
     def get_service(
         self,
-    ) -> CompanyService:
-        service: CompanyService = create_autospec(CompanyService, instance=True)
+    ) -> CompanyNationalService:
+        service: CompanyNationalService = create_autospec(
+            CompanyNationalService, instance=True
+        )
 
         service.get_by_user.return_value = CompanyBaseOffsetPageFactory.build()
         service.get_all.return_value = CompanyBaseCursorPageFactory.build()

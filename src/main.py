@@ -1,61 +1,50 @@
+import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import Final
 
 from cadwyn import Version, VersionBundle
-from dishka import Provider, make_async_container
+from fastapi import FastAPI
 
-from src.companies.deps import get_company_deps
-from src.companies.routes import get_company_router
-from src.core.asgi import ExtendedFastAPI
-from src.core.deps.base import get_deps
-from src.core.errors import get_handling_map
-from src.core.middlewares import get_middleware_map
+from src.companies.routers import company_router
+from src.core.asgi import FastAPIExtended
+from src.core.deps.base import core_container
+from src.core.errors import core_exc_handlers, sys_handler
+from src.core.middlewares import core_middleware
 from src.core.settings import (
     DocsSettings,
 )
-from src.users.deps import get_user_deps
-from src.users.errors import (
-    get_user_handling_map,
-)
-from src.users.routes import get_user_router
+from src.core.utils.logging import setup
+from src.users.routes import user_router
 
-
-def get_prod_deps() -> tuple[Provider, ...]:
-    return (
-        *get_deps(),
-        *get_user_deps(),
-        *get_company_deps(),
-    )
-
-
-CONTAINER: Final = make_async_container(*get_prod_deps())
+setup()
+sys.excepthook = sys_handler
 
 
 @asynccontextmanager
-async def lifespan(app: ExtendedFastAPI) -> AsyncGenerator[None]:
+async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     yield
 
-    await app.state.dishka_container.close()
+    await core_container().close()
 
 
-def get_app() -> ExtendedFastAPI:
-    docs = DocsSettings.load()
-
-    return ExtendedFastAPI(
+def core_app() -> FastAPIExtended:
+    return FastAPIExtended(
         routers=(
-            get_user_router(),
-            get_company_router(),
+            user_router(),
+            company_router(),
         ),
-        middleware_map=get_middleware_map(),
-        handling_map=(
-            *get_handling_map(),
-            *get_user_handling_map(),
-        ),
-        container=CONTAINER,
-        **docs.model_dump(by_alias=True, exclude_none=True),
+        middleware=(*core_middleware(),),
+        exception_handlers={
+            *core_exc_handlers(),
+        },
+        container=core_container(),
         lifespan=lifespan,
         versions=VersionBundle(
-            Version(str(docs.version.major)),
+            Version(str(DocsSettings().version.major)),
         ),
+        title=DocsSettings().title,
+        summary=DocsSettings().summary,
+        description=DocsSettings().description,
+        version=str(DocsSettings().version),
+        license_info=DocsSettings().license,
     )

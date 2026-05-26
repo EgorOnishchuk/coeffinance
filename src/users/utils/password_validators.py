@@ -1,14 +1,13 @@
-from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from typing import Annotated, ClassVar, Literal, override
+from typing import Annotated, ClassVar, Literal, Protocol
 
 from pydantic import AliasPath, Field, NonNegativeInt
 from zxcvbn import zxcvbn
 
-from src.core.schemas import NonEmptyStr, Schema
+from src.core.validators import NonEmptyStr, CoreValidator
 
 
-class Report(Schema):
+class Report(CoreValidator):
     is_strong: bool
     score: NonNegativeInt
     strength: Literal["Very Weak", "Weak", "Medium", "Strong", "Very Strong"]
@@ -22,13 +21,12 @@ class ZXCVBNReport(Report):
     ]
 
 
-class PasswordValidator(ABC):
-    @abstractmethod
+class PasswordValidator(Protocol):
     def validate(self, password: str, *, related: Iterable[str] = ()) -> Report:
         raise NotImplementedError
 
 
-class ZXCVBNValidator(PasswordValidator):
+class ZXCVBNValidator:
     STRENGTH: ClassVar = (
         "Very Weak",
         "Weak",
@@ -38,7 +36,6 @@ class ZXCVBNValidator(PasswordValidator):
     )
     REQUIRED_SCORE: ClassVar = 3
 
-    @override
     def validate(
         self,
         password: str,

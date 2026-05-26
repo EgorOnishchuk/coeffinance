@@ -17,7 +17,7 @@ services:
                 condition: service_healthy
         command:
             python -O -m uvicorn
-            --factory src.main:get_app
+            --factory src.main:get_core_app
             --host 0.0.0.0
             --port 8000
             --workers ${WORKERS:-1}
@@ -53,7 +53,7 @@ services:
                 - action: rebuild
                   path: pyproject.toml
         volumes:
-            - ./src/core/db/migrator/versions:/app/src/core/db/migrator/versions
+            - ./src/core/infrastructure/db/alembic/versions:/app/src/core/infrastructure/db/alembic/versions
         profiles:
             - dev
 
